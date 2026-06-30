@@ -1,0 +1,80 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPERADMIN
+}
+
+model User {
+  id                         String            @id @default(uuid())
+  email                      String            @unique
+  passwordHash               String
+  firstName                  String
+  lastName                   String
+  emailVerified              Boolean           @default(false)
+  emailVerificationTokenHash String?
+  passwordResetTokenHash     String?
+  passwordResetExpires       DateTime?
+  refreshTokenHash           String?           // Backward compatibility / Single session fallback
+  failedLoginAttempts        Int               @default(0)
+  lockUntil                  DateTime?
+  lastLogin                  DateTime?
+  role                       Role              @default(USER)
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+  sessions                   UserSession[]
+  passwordHistories          PasswordHistory[]
+  orders                     EsimOrder[]
+}
+
+model UserSession {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String   @unique // Hashed with Argon2
+  deviceName      String
+  browser         String
+  operatingSystem String
+  ipAddress       String
+  createdAt       DateTime @default(now())
+  lastUsedAt      DateTime @default(now())
+}
+
+model PasswordHistory {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+enum OrderStatus {
+  PENDING
+  PROVISIONED
+  FAILED
+}
+
+model EsimOrder {
+  id               String      @id @default(uuid())
+  userId           String
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId           String
+  countryCode      String
+  iccid            String?     @unique
+  qrCodeUrl        String?
+  smDpAddress      String?
+  activationCode   String?
+  status           OrderStatus @default(PENDING)
+  amountPaid       Float
+  stripeSessionId  String?     @unique
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}

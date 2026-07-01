@@ -15,7 +15,7 @@ export class PaymentService {
     @InjectQueue('esim-provision') private readonly provisionQueue: Queue,
   ) {
     this.stripe = new Stripe(process.env.STRIPE_API_KEY || 'sk_test_mock', {
-      apiVersion: '2025-01-27-preview' as any, // Matches latest Stripe library version
+      apiVersion: '2024-12-18.acacia' as any,
     });
   }
 
@@ -61,6 +61,39 @@ export class PaymentService {
     } catch (err) {
       this.logger.error(`Stripe session creation failed: ${(err as Error).message}`);
       throw new BadRequestException('Failed to initialize payment gateway.');
+    }
+  }
+
+  async createPaymentIntent(
+    userId: string,
+    email: string,
+    planId: string,
+    countryCode: string,
+    amount: number,
+  ): Promise<{ clientSecret: string; intentId: string; customerId: string | null }> {
+    try {
+      // For real-world apps, you'd find or create the Stripe Customer here.
+      // For this demo, we'll just create the intent directly.
+      const intent = await this.stripe.paymentIntents.create({
+        amount: Math.round(amount * 100), // convert to cents
+        currency: 'usd',
+        receipt_email: email,
+        metadata: {
+          userId,
+          planId,
+          countryCode,
+          amount: amount.toString(),
+        },
+      });
+
+      return {
+        clientSecret: intent.client_secret || '',
+        intentId: intent.id,
+        customerId: intent.customer as string | null,
+      };
+    } catch (err) {
+      this.logger.error(`Stripe PaymentIntent creation failed: ${(err as Error).message}`);
+      throw new BadRequestException('Failed to initialize Payment Intent.');
     }
   }
 
@@ -127,6 +160,59 @@ export class PaymentService {
           backoff: {
             type: 'exponential',
             delay: 5000, // Wait 5s, 10s, 20s
+          },
+        },
+      );
+    } else if (event.type === 'payment_intent.succeeded') {
+      const intent = event.data.object as Stripe.PaymentIntent;
+      const metadata = intent.metadata;
+
+      if (!metadata || !metadata.userId || !metadata.planId || !metadata.countryCode) {
+        this.logger.error(`Missing metadata in payment intent succeeded: ${intent.id}`);
+        return;
+      }
+
+      const userId = metadata.userId;
+      const planId = metadata.planId;
+      const countryCode = metadata.countryCode;
+      const amountPaid = parseFloat(metadata.amount || '0');
+
+      // Create Order in PENDING status (idempontency check using stripeSessionId)
+      const existingOrder = await this.prisma.esimOrder.findUnique({
+        where: { stripeSessionId: intent.id }, // Storing intent.id in stripeSessionId field
+      });
+
+      if (existingOrder) {
+        this.logger.log(`Order already registered for Stripe intent: ${intent.id}`);
+        return;
+      }
+
+      const order = await this.prisma.esimOrder.create({
+        data: {
+          userId,
+          planId,
+          countryCode,
+          status: OrderStatus.PENDING,
+          amountPaid,
+          stripeSessionId: intent.id, // Using the same field for PaymentIntent ID
+        },
+      });
+
+      this.logger.log(`Created PENDING order ${order.id} for user ${userId} via PaymentIntent. Queueing provisioning job.`);
+
+      await this.provisionQueue.add(
+        'provision-esim',
+        {
+          orderId: order.id,
+          userId,
+          planId,
+          email: intent.receipt_email || '',
+        },
+        {
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
           },
         },
       );

@@ -44,6 +44,30 @@ export class PaymentController {
     };
   }
 
+  @Post('intent')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a Stripe PaymentIntent for native mobile checkout' })
+  @ApiResponse({ status: 200, description: 'PaymentIntent created successfully.' })
+  async createIntent(
+    @GetUser('id') userId: string,
+    @GetUser('email') email: string,
+    @Body() dto: CheckoutDto,
+  ): Promise<{ success: boolean; data: any }> {
+    const intentData = await this.paymentService.createPaymentIntent(
+      userId,
+      email,
+      dto.planId,
+      dto.countryCode,
+      dto.amount,
+    );
+    return {
+      success: true,
+      data: intentData,
+    };
+  }
+
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Stripe Webhook Listener (Raw Body Verified)' })

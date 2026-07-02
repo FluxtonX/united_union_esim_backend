@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../database/prisma.service';
 import Stripe from 'stripe';
 import { OrderStatus } from '@prisma/client';
+import { EsimProvisionService } from '../queues/esim-provision.service';
 
 @Injectable()
 export class PaymentService {
@@ -13,6 +14,7 @@ export class PaymentService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue('esim-provision') private readonly provisionQueue: Queue,
+    private readonly esimProvisionService: EsimProvisionService,
   ) {
     this.stripe = new Stripe(process.env.STRIPE_API_KEY || 'sk_test_mock', {
       apiVersion: '2024-12-18.acacia' as any,
@@ -170,23 +172,38 @@ export class PaymentService {
 
       this.logger.log(`Created PENDING order ${order.id} for user ${userId}. Queueing provisioning job.`);
 
-      // Add background provisioning job to BullMQ
-      await this.provisionQueue.add(
-        'provision-esim',
-        {
-          orderId: order.id,
-          userId,
-          planId,
-          email: session.customer_details?.email || session.customer_email || '',
-        },
-        {
-          attempts: 3, // Retry up to 3 times on failure
-          backoff: {
-            type: 'exponential',
-            delay: 5000, // Wait 5s, 10s, 20s
+      const bypassQueue = process.env.BYPASS_QUEUE === 'true' || !process.env.REDIS_HOST;
+      if (bypassQueue) {
+        this.logger.log(`Queue bypass enabled. Provisioning order ${order.id} in-line.`);
+        try {
+          await this.esimProvisionService.provision(
+            order.id,
+            planId,
+            session.customer_details?.email || session.customer_email || '',
+            0,
+          );
+        } catch (err) {
+          this.logger.error(`In-line provisioning failed for order ${order.id}: ${(err as Error).message}`);
+        }
+      } else {
+        // Add background provisioning job to BullMQ
+        await this.provisionQueue.add(
+          'provision-esim',
+          {
+            orderId: order.id,
+            userId,
+            planId,
+            email: session.customer_details?.email || session.customer_email || '',
           },
-        },
-      );
+          {
+            attempts: 3, // Retry up to 3 times on failure
+            backoff: {
+              type: 'exponential',
+              delay: 5000, // Wait 5s, 10s, 20s
+            },
+          },
+        );
+      }
     } else if (event.type === 'payment_intent.succeeded') {
       const intent = event.data.object as Stripe.PaymentIntent;
       const metadata = intent.metadata;
@@ -224,22 +241,37 @@ export class PaymentService {
 
       this.logger.log(`Created PENDING order ${order.id} for user ${userId} via PaymentIntent. Queueing provisioning job.`);
 
-      await this.provisionQueue.add(
-        'provision-esim',
-        {
-          orderId: order.id,
-          userId,
-          planId,
-          email: intent.receipt_email || '',
-        },
-        {
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 5000,
+      const bypassQueue = process.env.BYPASS_QUEUE === 'true' || !process.env.REDIS_HOST;
+      if (bypassQueue) {
+        this.logger.log(`Queue bypass enabled. Provisioning order ${order.id} in-line via PaymentIntent.`);
+        try {
+          await this.esimProvisionService.provision(
+            order.id,
+            planId,
+            intent.receipt_email || '',
+            0,
+          );
+        } catch (err) {
+          this.logger.error(`In-line provisioning failed for order ${order.id} via PaymentIntent: ${(err as Error).message}`);
+        }
+      } else {
+        await this.provisionQueue.add(
+          'provision-esim',
+          {
+            orderId: order.id,
+            userId,
+            planId,
+            email: intent.receipt_email || '',
           },
-        },
-      );
+          {
+            attempts: 3,
+            backoff: {
+              type: 'exponential',
+              delay: 5000,
+            },
+          },
+        );
+      }
     }
   }
 

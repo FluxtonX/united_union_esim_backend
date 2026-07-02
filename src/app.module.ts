@@ -10,20 +10,26 @@ import { PaymentModule } from './payment/payment.module';
 import { QueuesProcessorModule } from './queues/queues-processor.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 
+const imports = [
+  PrismaModule,
+  MailModule,
+  AuthModule,
+  ProviderModule,
+  CatalogModule,
+  PaymentModule,
+  ThrottlerModule.forRoot([{
+    ttl: 60000,
+    limit: 60,
+  }]),
+];
+
+// Conditionally load QueuesProcessorModule only if queue processing is enabled
+if (process.env.BYPASS_QUEUE !== 'true' && !!process.env.REDIS_HOST) {
+  imports.push(QueuesProcessorModule);
+}
+
 @Module({
-  imports: [
-    PrismaModule,
-    MailModule,
-    AuthModule,
-    ProviderModule,
-    CatalogModule,
-    PaymentModule,
-    QueuesProcessorModule,
-    ThrottlerModule.forRoot([{
-      ttl: 60000,
-      limit: 60,
-    }]),
-  ],
+  imports: imports,
   controllers: [AppController],
   providers: [AppService],
 })

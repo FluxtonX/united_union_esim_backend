@@ -1,6 +1,8 @@
 import {
   Controller,
   Post,
+  Get,
+  Query,
   Body,
   UseGuards,
   Req,
@@ -20,6 +22,23 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiHeader } from '@n
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
+  @Get('order-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get eSIM order status by Stripe session ID or order ID' })
+  @ApiResponse({ status: 200, description: 'Order status retrieved successfully.' })
+  async getOrderStatus(
+    @Query('session_id') sessionId: string,
+  ): Promise<{ success: boolean; data: any }> {
+    if (!sessionId) {
+      throw new BadRequestException('session_id query parameter is required');
+    }
+    const order = await this.paymentService.getOrderStatusBySessionId(sessionId);
+    return {
+      success: true,
+      data: order,
+    };
+  }
+
   @Post('checkout')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -34,6 +53,26 @@ export class PaymentController {
     const session = await this.paymentService.createCheckoutSession(
       userId,
       email,
+      dto.planId,
+      dto.countryCode,
+      dto.amount,
+    );
+    return {
+      success: true,
+      data: session,
+    };
+  }
+
+  @Post('guest-checkout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Create a Stripe checkout session for a guest eSIM plan purchase' })
+  @ApiResponse({ status: 200, description: 'Checkout session created successfully for guest.' })
+  async createGuestCheckout(
+    @Body() dto: CheckoutDto,
+  ): Promise<{ success: boolean; data: any }> {
+    const session = await this.paymentService.createCheckoutSession(
+      undefined,
+      undefined,
       dto.planId,
       dto.countryCode,
       dto.amount,

@@ -20,12 +20,36 @@ export class PaymentService {
   }
 
   async createCheckoutSession(
-    userId: string,
-    email: string,
+    userId: string | undefined,
+    email: string | undefined,
     planId: string,
     countryCode: string,
     amount: number,
   ): Promise<{ sessionId: string; url: string | null }> {
+    let finalUserId = userId;
+    let finalEmail = email;
+
+    if (!finalUserId) {
+      // Find or create default guest user
+      let guestUser = await this.prisma.user.findUnique({
+        where: { email: 'guest@unitedunion.com' },
+      });
+      if (!guestUser) {
+        guestUser = await this.prisma.user.create({
+          data: {
+            email: 'guest@unitedunion.com',
+            passwordHash: '$2b$10$hashedpasswordplaceholder',
+            firstName: 'Guest',
+            lastName: 'User',
+            role: 'USER',
+            emailVerified: true,
+          },
+        });
+      }
+      finalUserId = guestUser.id;
+      finalEmail = guestUser.email;
+    }
+
     try {
       const session = await this.stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -43,15 +67,15 @@ export class PaymentService {
           },
         ],
         mode: 'payment',
-        customer_email: email,
+        customer_email: finalEmail,
         metadata: {
-          userId,
+          userId: finalUserId,
           planId,
           countryCode,
           amount: amount.toString(),
         },
-        success_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/checkout/cancel`,
+        success_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/checkout/cancel`,
       });
 
       return {
@@ -217,5 +241,20 @@ export class PaymentService {
         },
       );
     }
+  }
+
+  async getOrderStatusBySessionId(sessionId: string): Promise<any> {
+    const order = await this.prisma.esimOrder.findFirst({
+      where: {
+        OR: [
+          { stripeSessionId: sessionId },
+          { id: sessionId }
+        ]
+      },
+    });
+    if (!order) {
+      throw new BadRequestException('Order not found.');
+    }
+    return order;
   }
 }

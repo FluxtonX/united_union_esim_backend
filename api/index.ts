@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter, NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import express from 'express';
@@ -21,8 +22,12 @@ async function bootstrap() {
     // Security: Enable trust proxy for correct IP parsing behind proxies (Vercel)
     app.set('trust proxy', 1);
 
-    // Security: Apply Helmet headers
-    app.use(helmet());
+    // Security: Apply Helmet headers (allow inline styles/scripts for Swagger UI to render properly)
+    app.use(
+      helmet({
+        contentSecurityPolicy: false,
+      }),
+    );
 
     // Security: CORS configuration
     app.enableCors({
@@ -42,6 +47,25 @@ async function bootstrap() {
         transform: true,
       }),
     );
+
+    // Documentation: Swagger API Setup for Vercel Serverless Function
+    const config = new DocumentBuilder()
+      .setTitle('UnitedUnion eSIM Backend API')
+      .setDescription('Production-grade API endpoints for the B2C Travel eSIM storefront.')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+
+    const document = SwaggerModule.createDocument(app, config);
+    
+    // Serve Swagger assets from CDN to work flawlessly on Vercel without local static file dependencies
+    SwaggerModule.setup('api/docs', app, document, {
+      customCssUrl: 'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.9.0/swagger-ui.min.css',
+      customJs: [
+        'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.9.0/swagger-ui-bundle.min.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.9.0/swagger-ui-standalone-preset.min.js',
+      ],
+    });
 
     // Initialize NestJS and register routes with the underlying Express instance
     await app.init();

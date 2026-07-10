@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../database/prisma.service';
 import { Request } from 'express';
@@ -21,7 +26,7 @@ export class JwtAuthGuard implements CanActivate {
     try {
       // Verify JWT Access Token
       const payload = await this.jwtService.verifyAsync(token);
-      
+
       // Validate session active state in database (for instant revocation support)
       const session = await this.prisma.userSession.findUnique({
         where: { id: payload.sessionId },
@@ -44,7 +49,9 @@ export class JwtAuthGuard implements CanActivate {
       if (err instanceof UnauthorizedException) {
         throw err;
       }
-      throw new UnauthorizedException('Invalid or expired authentication token');
+      throw new UnauthorizedException(
+        'Invalid or expired authentication token',
+      );
     }
   }
 

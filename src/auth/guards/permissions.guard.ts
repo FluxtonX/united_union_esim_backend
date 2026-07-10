@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Role } from '@prisma/client';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
@@ -33,10 +38,10 @@ export class PermissionsGuard implements CanActivate {
   };
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredPermissions = this.reflector.getAllAndOverride<string[]>(PERMISSIONS_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
+      PERMISSIONS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     if (!requiredPermissions || requiredPermissions.length === 0) {
       return true;
@@ -57,7 +62,9 @@ export class PermissionsGuard implements CanActivate {
     }
 
     // Verify user possesses all required permissions
-    const hasAllPermissions = requiredPermissions.every((perm) => userPermissions.includes(perm));
+    const hasAllPermissions = requiredPermissions.every((perm) =>
+      userPermissions.includes(perm),
+    );
 
     if (!hasAllPermissions) {
       throw new ForbiddenException('Access denied: insufficient permissions');

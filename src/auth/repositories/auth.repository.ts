@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { User, UserSession, PasswordHistory, Role } from '@prisma/client';
+import { User, UserSession, PasswordHistory } from '@prisma/client';
 
 @Injectable()
 export class AuthRepository {
@@ -96,7 +96,10 @@ export class AuthRepository {
     });
   }
 
-  async updateSessionToken(id: string, refreshTokenHash: string): Promise<UserSession> {
+  async updateSessionToken(
+    id: string,
+    refreshTokenHash: string,
+  ): Promise<UserSession> {
     return this.prisma.userSession.update({
       where: { id },
       data: {
@@ -134,7 +137,10 @@ export class AuthRepository {
     });
   }
 
-  async addPasswordHistory(userId: string, passwordHash: string): Promise<PasswordHistory> {
+  async addPasswordHistory(
+    userId: string,
+    passwordHash: string,
+  ): Promise<PasswordHistory> {
     return this.prisma.passwordHistory.create({
       data: {
         userId,

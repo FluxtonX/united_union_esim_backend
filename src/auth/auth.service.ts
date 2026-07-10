@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthRepository } from './repositories/auth.repository';
 import { PasswordUtility } from './utils/password.utility';
@@ -25,7 +30,7 @@ export class AuthService {
   /**
    * Registers a new user. Does not allow login until email is verified.
    */
-  async register(dto: RegisterDto): Promise<void> {
+  async register(dto: RegisterDto): Promise<{ verificationToken: string }> {
     const email = dto.email.toLowerCase().trim();
 
     // Check duplicate
@@ -33,7 +38,7 @@ export class AuthService {
     if (existing) {
       // Return generic response to avoid email enumeration
       this.logger.log(`Registration attempt for existing email: ${email}`);
-      return;
+      return { verificationToken: '' };
     }
 
     // Hash password
@@ -58,6 +63,7 @@ export class AuthService {
     // Send email verification
     await this.mailService.sendEmailVerification(email, rawToken);
     this.logger.log(`Success registration for user id: ${user.id}`);
+    return { verificationToken: rawToken };
   }
 
   /**
@@ -80,17 +86,24 @@ export class AuthService {
     // Check account lock status
     if (user.lockUntil && user.lockUntil > new Date()) {
       this.logger.warn(`Login failed: Account locked for user: ${user.id}`);
-      throw new UnauthorizedException('Account is temporarily locked. Try again later.');
+      throw new UnauthorizedException(
+        'Account is temporarily locked. Try again later.',
+      );
     }
 
     // Verify email verified
     if (!user.emailVerified) {
       this.logger.warn(`Login failed: email not verified for user: ${user.id}`);
-      throw new UnauthorizedException('Please verify your email before logging in.');
+      throw new UnauthorizedException(
+        'Please verify your email before logging in.',
+      );
     }
 
     // Verify password
-    const isPasswordValid = await PasswordUtility.verify(user.passwordHash, dto.password);
+    const isPasswordValid = await PasswordUtility.verify(
+      user.passwordHash,
+      dto.password,
+    );
     if (!isPasswordValid) {
       await this.handleFailedLogin(user);
       throw genericError;
@@ -106,7 +119,8 @@ export class AuthService {
     const parser = new UAParser(userAgent);
     const browser = parser.getBrowser().name || 'Unknown Browser';
     const os = parser.getOS().name || 'Unknown OS';
-    const device = parser.getDevice().model || parser.getDevice().type || 'Desktop/Laptop';
+    const device =
+      parser.getDevice().model || parser.getDevice().type || 'Desktop/Laptop';
 
     // Generate tokens
     const rawRefreshToken = crypto.randomBytes(40).toString('hex');
@@ -125,7 +139,9 @@ export class AuthService {
     const accessToken = this.generateAccessToken(user, session.id);
     const refreshToken = this.generateRefreshToken(session.id, rawRefreshToken);
 
-    this.logger.log(`Successful login for user: ${user.id}, Session: ${session.id}`);
+    this.logger.log(
+      `Successful login for user: ${user.id}, Session: ${session.id}`,
+    );
 
     return { accessToken, refreshToken };
   }
@@ -140,7 +156,7 @@ export class AuthService {
 
     try {
       // Decode without verification first to extract sessionId
-      const decoded = this.jwtService.decode(rawRefreshToken) as any;
+      const decoded = this.jwtService.decode(rawRefreshToken);
       if (!decoded || !decoded.sessionId || !decoded.tokenValue) {
         throw genericError;
       }
@@ -163,7 +179,9 @@ export class AuthService {
         this.logger.error(
           `Token reuse detected! Revoking all sessions for User: ${session.userId}`,
         );
-        throw new UnauthorizedException('Session expired due to suspicious token activity');
+        throw new UnauthorizedException(
+          'Session expired due to suspicious token activity',
+        );
       }
 
       // Rotate Refresh Token
@@ -244,7 +262,11 @@ export class AuthService {
     const users = await this.repository.findUserByEmail('placeholder'); // We must query token hash in prisma, wait, let's write custom query in repository if needed, or query direct.
     // Let's implement finding by token directly in Prisma
     const user = await this.prismaFindUserByResetToken(tokenHash);
-    if (!user || !user.passwordResetExpires || user.passwordResetExpires < new Date()) {
+    if (
+      !user ||
+      !user.passwordResetExpires ||
+      user.passwordResetExpires < new Date()
+    ) {
       throw new BadRequestException('Reset token is invalid or has expired');
     }
 
@@ -277,7 +299,9 @@ export class AuthService {
     const user = await this.prismaFindUserByVerificationToken(tokenHash);
 
     if (!user) {
-      throw new BadRequestException('Verification token is invalid or has expired');
+      throw new BadRequestException(
+        'Verification token is invalid or has expired',
+      );
     }
 
     await this.repository.updateUser(user.id, {
@@ -298,7 +322,10 @@ export class AuthService {
     }
 
     // Verify current password
-    const isPasswordValid = await PasswordUtility.verify(user.passwordHash, dto.oldPassword);
+    const isPasswordValid = await PasswordUtility.verify(
+      user.passwordHash,
+      dto.oldPassword,
+    );
     if (!isPasswordValid) {
       throw new BadRequestException('Current password is incorrect');
     }
@@ -351,16 +378,24 @@ export class AuthService {
     if (attempts >= 5) {
       const lockTime = new Date(Date.now() + 15 * 60 * 1000); // 15 mins lock
       await this.repository.lockAccount(user.id, lockTime);
-      this.logger.warn(`Account locked due to consecutive failures. User: ${user.id}`);
+      this.logger.warn(
+        `Account locked due to consecutive failures. User: ${user.id}`,
+      );
     } else {
       await this.repository.incrementFailedLogin(user.id);
     }
   }
 
-  private async checkPasswordReuse(userId: string, plainText: string): Promise<void> {
+  private async checkPasswordReuse(
+    userId: string,
+    plainText: string,
+  ): Promise<void> {
     const history = await this.repository.getPasswordHistory(userId);
     for (const record of history) {
-      const matches = await PasswordUtility.verify(record.passwordHash, plainText);
+      const matches = await PasswordUtility.verify(
+        record.passwordHash,
+        plainText,
+      );
       if (matches) {
         throw new BadRequestException(
           'You cannot reuse a recently used password. Please choose a new password.',
@@ -379,7 +414,10 @@ export class AuthService {
     return this.jwtService.sign(payload, { expiresIn: '15m' });
   }
 
-  private generateRefreshToken(sessionId: string, rawTokenValue: string): string {
+  private generateRefreshToken(
+    sessionId: string,
+    rawTokenValue: string,
+  ): string {
     const payload = {
       sessionId,
       tokenValue: rawTokenValue,
@@ -389,7 +427,9 @@ export class AuthService {
   }
 
   // Accessing prisma directly for token lookups since they aren't on primary unique index
-  private async prismaFindUserByResetToken(tokenHash: string): Promise<User | null> {
+  private async prismaFindUserByResetToken(
+    tokenHash: string,
+  ): Promise<User | null> {
     // Directly querying prisma client via the repo's private prisma instance, wait, we can implement it cleanly
     const prisma = (this.repository as any).prisma as PrismaService;
     return prisma.user.findFirst({
@@ -397,7 +437,9 @@ export class AuthService {
     });
   }
 
-  private async prismaFindUserByVerificationToken(tokenHash: string): Promise<User | null> {
+  private async prismaFindUserByVerificationToken(
+    tokenHash: string,
+  ): Promise<User | null> {
     const prisma = (this.repository as any).prisma as PrismaService;
     return prisma.user.findFirst({
       where: { emailVerificationTokenHash: tokenHash },

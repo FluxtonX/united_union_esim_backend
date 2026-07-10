@@ -22,7 +22,12 @@ import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GetUser } from './decorators/get-user.decorator';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -32,19 +37,31 @@ export class AuthController {
   @Post('register')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Register a new traveler' })
-  @ApiResponse({ status: 200, description: 'Registration successful. Verification email sent.' })
-  async register(@Body() dto: RegisterDto): Promise<{ success: boolean; message: string }> {
-    await this.authService.register(dto);
+  @ApiResponse({
+    status: 200,
+    description: 'Registration successful. Verification email sent.',
+  })
+  async register(@Body() dto: RegisterDto): Promise<{
+    success: boolean;
+    message: string;
+    verificationToken?: string;
+  }> {
+    const result = await this.authService.register(dto);
     return {
       success: true,
-      message: 'Registration successful. Please verify your email before logging in.',
+      message:
+        'Registration successful. Please verify your email before logging in.',
+      verificationToken: result.verificationToken,
     };
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with email and password' })
-  @ApiResponse({ status: 200, description: 'Login successful. Tokens set in secure cookies.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Login successful. Tokens set in secure cookies.',
+  })
   async login(
     @Body() dto: LoginDto,
     @Req() req: any,
@@ -53,7 +70,11 @@ export class AuthController {
     const ip = req.ip || '127.0.0.1';
     const userAgent = req.headers['user-agent'] || 'Unknown';
 
-    const { accessToken, refreshToken } = await this.authService.login(dto, ip, userAgent);
+    const { accessToken, refreshToken } = await this.authService.login(
+      dto,
+      ip,
+      userAgent,
+    );
 
     // Set secure HTTP-Only cookies
     this.setTokenCookies(res, accessToken, refreshToken);
@@ -73,9 +94,11 @@ export class AuthController {
     @Res({ passthrough: true }) res: any,
   ): Promise<{ success: boolean; message: string }> {
     // Extract token from cookies first, fallback to request body/headers if needed
-    const oldRefreshToken = req.cookies?.refresh_token || req.body?.refreshToken;
+    const oldRefreshToken =
+      req.cookies?.refresh_token || req.body?.refreshToken;
 
-    const { accessToken, refreshToken } = await this.authService.refresh(oldRefreshToken);
+    const { accessToken, refreshToken } =
+      await this.authService.refresh(oldRefreshToken);
 
     this.setTokenCookies(res, accessToken, refreshToken);
 
@@ -122,7 +145,9 @@ export class AuthController {
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request password reset token link' })
-  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<{ success: boolean; message: string }> {
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+  ): Promise<{ success: boolean; message: string }> {
     await this.authService.forgotPassword(dto.email);
     return {
       success: true,
@@ -133,7 +158,9 @@ export class AuthController {
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using token' })
-  async resetPassword(@Body() dto: ResetPasswordDto): Promise<{ success: boolean; message: string }> {
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+  ): Promise<{ success: boolean; message: string }> {
     await this.authService.resetPassword(dto);
     return {
       success: true,
@@ -144,7 +171,9 @@ export class AuthController {
   @Post('verify-email')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify email verification token' })
-  async verifyEmail(@Body() dto: VerifyEmailDto): Promise<{ success: boolean; message: string }> {
+  async verifyEmail(
+    @Body() dto: VerifyEmailDto,
+  ): Promise<{ success: boolean; message: string }> {
     await this.authService.verifyEmail(dto.token);
     return {
       success: true,
@@ -167,7 +196,9 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get all active device sessions' })
-  async getSessions(@GetUser('id') userId: string): Promise<{ success: boolean; data: any[] }> {
+  async getSessions(
+    @GetUser('id') userId: string,
+  ): Promise<{ success: boolean; data: any[] }> {
     const sessions = await this.authService.getSessions(userId);
     return {
       success: true,
@@ -206,7 +237,11 @@ export class AuthController {
   }
 
   // Private Helper methods to write secure cookies
-  private setTokenCookies(res: Response, accessToken: string, refreshToken: string): void {
+  private setTokenCookies(
+    res: Response,
+    accessToken: string,
+    refreshToken: string,
+  ): void {
     // 15 mins access token cookie
     res.cookie('access_token', accessToken, {
       httpOnly: true,

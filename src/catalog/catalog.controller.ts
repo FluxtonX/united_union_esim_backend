@@ -10,8 +10,13 @@ export class CatalogController {
 
   @Get('countries')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'List supported countries with plan count and starting price' })
-  @ApiResponse({ status: 200, description: 'List of countries retrieved successfully.' })
+  @ApiOperation({
+    summary: 'List supported countries with plan count and starting price',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of countries retrieved successfully.',
+  })
   async getCountries(): Promise<{ success: boolean; data: CountryListItem[] }> {
     const countries = await this.catalogService.getCountries();
     return {
@@ -23,7 +28,11 @@ export class CatalogController {
   @Get('plans')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'List available eSIM plans for a specific country' })
-  @ApiQuery({ name: 'country', description: 'ISO 2-letter country code (e.g. US, GB)', required: true })
+  @ApiQuery({
+    name: 'country',
+    description: 'ISO 2-letter country code (e.g. US, GB)',
+    required: true,
+  })
   @ApiResponse({ status: 200, description: 'Plans retrieved successfully.' })
   async getPlans(
     @Query('country') countryCode: string,

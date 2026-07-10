@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
-import { QueueModule } from '../queues/queue.module';
+import { EsimProvisionService } from './esim-provision.service';
 
 @Module({
-  imports: [QueueModule],
   controllers: [PaymentController],
-  providers: [PaymentService],
+  providers: [PaymentService, EsimProvisionService],
+  exports: [EsimProvisionService],
 })
 export class PaymentModule {}

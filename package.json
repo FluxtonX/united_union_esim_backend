@@ -21,7 +21,6 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.2",
@@ -31,10 +30,10 @@
     "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "6.2.1",
     "argon2": "^0.44.0",
-    "bullmq": "^5.79.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
     "helmet": "^8.2.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",

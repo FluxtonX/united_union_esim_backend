@@ -12,8 +12,8 @@ export class CheckoutDto {
   @IsNotEmpty()
   countryCode!: string;
 
-  @ApiProperty({ example: 12.50 })
+  @ApiProperty({ example: 12.5 })
   @IsNumber()
-  @Min(0.50, { message: 'Minimum checkout price is $0.50' })
+  @Min(0.5, { message: 'Minimum checkout price is $0.50' })
   amount!: number;
 }

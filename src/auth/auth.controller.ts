@@ -185,10 +185,13 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current user profile' })
-  async me(@GetUser() user: any): Promise<{ success: boolean; data: any }> {
+  async me(
+    @GetUser('id') userId: string,
+  ): Promise<{ success: boolean; data: any }> {
+    const profile = await this.authService.getProfile(userId);
     return {
       success: true,
-      data: user,
+      data: profile,
     };
   }
 

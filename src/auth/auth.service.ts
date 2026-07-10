@@ -445,4 +445,19 @@ export class AuthService {
       where: { emailVerificationTokenHash: tokenHash },
     });
   }
+
+  async getProfile(userId: string): Promise<any> {
+    const user = await this.repository.findUserById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      createdAt: user.createdAt,
+    };
+  }
 }

@@ -19,8 +19,8 @@ export class PasswordUtility {
     return argon2.hash(password, {
       type: argon2.argon2id,
       memoryCost: 65536, // 64 MB (standard production config)
-      timeCost: 3,       // 3 iterations
-      parallelism: 4,    // 4 threads
+      timeCost: 3, // 3 iterations
+      parallelism: 4, // 4 threads
     });
   }
 

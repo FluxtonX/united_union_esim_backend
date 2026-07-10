@@ -1,38 +1,54 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { ESIM_PROVIDER } from '../providers/interfaces/esim-provider.interface';
+import {
+  ESIM_PROVIDER,
+  EsimProvider,
+} from '../providers/interfaces/esim-provider.interface';
 import { MailService } from '../mail/mail.service';
 import { OrderStatus } from '@prisma/client';
 
 @Injectable()
 export class EsimProvisionService {
   private readonly logger = new Logger(EsimProvisionService.name);
+  private readonly provider: EsimProvider;
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(ESIM_PROVIDER) private readonly provider: any,
+    @Inject(ESIM_PROVIDER) provider: any,
     private readonly mailService: MailService,
-  ) {}
+  ) {
+    this.provider = provider as EsimProvider;
+  }
 
-  async provision(orderId: string, planId: string, email: string, attemptsMade = 0): Promise<void> {
-    this.logger.log(`[EsimProvisionService] Starting provisioning for Order: ${orderId}`);
+  async provision(
+    orderId: string,
+    planId: string,
+    email: string,
+  ): Promise<void> {
+    this.logger.log(
+      `[EsimProvisionService] Starting provisioning for Order: ${orderId}`,
+    );
 
     const order = await this.prisma.esimOrder.findUnique({
       where: { id: orderId },
     });
 
     if (!order) {
-      this.logger.error(`Order ${orderId} not found in database. Terminating provisioning.`);
+      this.logger.error(
+        `Order ${orderId} not found in database. Terminating provisioning.`,
+      );
       return;
     }
 
     if (order.status !== OrderStatus.PENDING) {
-      this.logger.warn(`Order ${orderId} is already processed (Status: ${order.status}). Skipping.`);
+      this.logger.warn(
+        `Order ${orderId} is already processed (Status: ${order.status}). Skipping.`,
+      );
       return;
     }
 
     try {
-      // Provision eSIM from provider (Maya Mobile)
+      // Provision eSIM from provider (Yesim API)
       const providerOrder = await this.provider.orderEsim(planId, email);
 
       // Update database status to PROVISIONED
@@ -47,7 +63,9 @@ export class EsimProvisionService {
         },
       });
 
-      this.logger.log(`Order ${orderId} successfully provisioned with ICCID: ${providerOrder.iccid}`);
+      this.logger.log(
+        `Order ${orderId} successfully provisioned with ICCID: ${providerOrder.iccid}`,
+      );
 
       // Email eSIM activation credentials to the user
       await this.mailService.sendEsimDetails(
@@ -59,21 +77,18 @@ export class EsimProvisionService {
       );
     } catch (err) {
       this.logger.error(
-        `Failed to provision eSIM for order ${orderId}: ${(err as Error).message}. Attempt: ${attemptsMade + 1}`,
+        `Failed to provision eSIM for order ${orderId}: ${(err as Error).message}`,
       );
 
-      // Update DB to FAILED if all retry attempts are exhausted (e.g. 3 attempts)
-      if (attemptsMade >= 2) {
-        await this.prisma.esimOrder.update({
-          where: { id: orderId },
-          data: {
-            status: OrderStatus.FAILED,
-          },
-        });
-        this.logger.error(`All retry attempts exhausted. Order ${orderId} marked as FAILED.`);
-      }
+      // Immediately mark as FAILED on synchronous provision error since background queues are removed
+      await this.prisma.esimOrder.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.FAILED,
+        },
+      });
 
-      // Rethrow to trigger BullMQ backoff retry logic (if called from queue)
+      this.logger.error(`Order ${orderId} marked as FAILED.`);
       throw err;
     }
   }

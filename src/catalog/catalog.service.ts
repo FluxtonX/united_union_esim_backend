@@ -1,5 +1,9 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { ESIM_PROVIDER, EsimProvider, ProviderPlan } from '../providers/interfaces/esim-provider.interface';
+import {
+  ESIM_PROVIDER,
+  EsimProvider,
+  ProviderPlan,
+} from '../providers/interfaces/esim-provider.interface';
 
 export interface CountryListItem {
   name: string;
@@ -11,9 +15,10 @@ export interface CountryListItem {
 
 @Injectable()
 export class CatalogService {
-  constructor(
-    @Inject(ESIM_PROVIDER) private readonly provider: any,
-  ) {}
+  private readonly provider: EsimProvider;
+  constructor(@Inject(ESIM_PROVIDER) provider: any) {
+    this.provider = provider as EsimProvider;
+  }
 
   private readonly supportedCountries = [
     { name: 'United States', code: 'US', flag: '🇺🇸' },
@@ -26,6 +31,10 @@ export class CatalogService {
     { name: 'Thailand', code: 'TH', flag: '🇹🇭' },
     { name: 'Spain', code: 'ES', flag: '🇪🇸' },
     { name: 'Italy', code: 'IT', flag: '🇮🇹' },
+    { name: 'Europe', code: 'EU', flag: '🇪🇺' },
+    { name: 'Asia', code: 'AS', flag: '🌏' },
+    { name: 'Middle East', code: 'ME', flag: '🐪' },
+    { name: 'Global', code: 'GLOBAL', flag: '🌐' },
   ];
 
   async getCountries(): Promise<CountryListItem[]> {
@@ -59,7 +68,9 @@ export class CatalogService {
     const isSupported = this.supportedCountries.some((c) => c.code === code);
 
     if (!isSupported) {
-      throw new NotFoundException(`Country code '${countryCode}' is not supported.`);
+      throw new NotFoundException(
+        `Country code '${countryCode}' is not supported.`,
+      );
     }
 
     const plans = await this.provider.getPlans(code);

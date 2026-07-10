@@ -1,10 +1,9 @@
-import { Injectable, Logger, BadRequestException, Inject } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import Stripe from 'stripe';
 import { OrderStatus } from '@prisma/client';
-import { EsimProvisionService } from '../queues/esim-provision.service';
+import { EsimProvisionService } from './esim-provision.service';
 
 @Injectable()
 export class PaymentService {
@@ -13,7 +12,6 @@ export class PaymentService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @InjectQueue('esim-provision') private readonly provisionQueue: Queue,
     private readonly esimProvisionService: EsimProvisionService,
   ) {
     this.stripe = new Stripe(process.env.STRIPE_API_KEY || 'sk_test_mock', {
@@ -85,7 +83,9 @@ export class PaymentService {
         url: session.url,
       };
     } catch (err) {
-      this.logger.error(`Stripe session creation failed: ${(err as Error).message}`);
+      this.logger.error(
+        `Stripe session creation failed: ${(err as Error).message}`,
+      );
       throw new BadRequestException('Failed to initialize payment gateway.');
     }
   }
@@ -96,7 +96,11 @@ export class PaymentService {
     planId: string,
     countryCode: string,
     amount: number,
-  ): Promise<{ clientSecret: string; intentId: string; customerId: string | null }> {
+  ): Promise<{
+    clientSecret: string;
+    intentId: string;
+    customerId: string | null;
+  }> {
     try {
       // For real-world apps, you'd find or create the Stripe Customer here.
       // For this demo, we'll just create the intent directly.
@@ -118,7 +122,9 @@ export class PaymentService {
         customerId: intent.customer as string | null,
       };
     } catch (err) {
-      this.logger.error(`Stripe PaymentIntent creation failed: ${(err as Error).message}`);
+      this.logger.error(
+        `Stripe PaymentIntent creation failed: ${(err as Error).message}`,
+      );
       throw new BadRequestException('Failed to initialize Payment Intent.');
     }
   }
@@ -129,18 +135,31 @@ export class PaymentService {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_mock';
 
     try {
-      event = this.stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+      event = this.stripe.webhooks.constructEvent(
+        rawBody,
+        signature,
+        webhookSecret,
+      );
     } catch (err) {
-      this.logger.error(`Webhook signature verification failed: ${(err as Error).message}`);
+      this.logger.error(
+        `Webhook signature verification failed: ${(err as Error).message}`,
+      );
       throw new BadRequestException('Webhook verification failed.');
     }
 
     if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
+      const session = event.data.object;
       const metadata = session.metadata;
 
-      if (!metadata || !metadata.userId || !metadata.planId || !metadata.countryCode) {
-        this.logger.error(`Missing metadata in checkout session completed: ${session.id}`);
+      if (
+        !metadata ||
+        !metadata.userId ||
+        !metadata.planId ||
+        !metadata.countryCode
+      ) {
+        this.logger.error(
+          `Missing metadata in checkout session completed: ${session.id}`,
+        );
         return;
       }
 
@@ -155,7 +174,9 @@ export class PaymentService {
       });
 
       if (existingOrder) {
-        this.logger.log(`Order already registered for Stripe session: ${session.id}`);
+        this.logger.log(
+          `Order already registered for Stripe session: ${session.id}`,
+        );
         return;
       }
 
@@ -170,46 +191,33 @@ export class PaymentService {
         },
       });
 
-      this.logger.log(`Created PENDING order ${order.id} for user ${userId}. Queueing provisioning job.`);
-
-      const bypassQueue = process.env.BYPASS_QUEUE === 'true' || !process.env.REDIS_HOST;
-      if (bypassQueue) {
-        this.logger.log(`Queue bypass enabled. Provisioning order ${order.id} in-line.`);
-        try {
-          await this.esimProvisionService.provision(
-            order.id,
-            planId,
-            session.customer_details?.email || session.customer_email || '',
-            0,
-          );
-        } catch (err) {
-          this.logger.error(`In-line provisioning failed for order ${order.id}: ${(err as Error).message}`);
-        }
-      } else {
-        // Add background provisioning job to BullMQ
-        await this.provisionQueue.add(
-          'provision-esim',
-          {
-            orderId: order.id,
-            userId,
-            planId,
-            email: session.customer_details?.email || session.customer_email || '',
-          },
-          {
-            attempts: 3, // Retry up to 3 times on failure
-            backoff: {
-              type: 'exponential',
-              delay: 5000, // Wait 5s, 10s, 20s
-            },
-          },
+      this.logger.log(
+        `Created PENDING order ${order.id} for user ${userId}. Provisioning eSIM inline.`,
+      );
+      try {
+        await this.esimProvisionService.provision(
+          order.id,
+          planId,
+          session.customer_details?.email || session.customer_email || '',
+        );
+      } catch (err) {
+        this.logger.error(
+          `Inline provisioning failed for order ${order.id}: ${(err as Error).message}`,
         );
       }
     } else if (event.type === 'payment_intent.succeeded') {
-      const intent = event.data.object as Stripe.PaymentIntent;
+      const intent = event.data.object;
       const metadata = intent.metadata;
 
-      if (!metadata || !metadata.userId || !metadata.planId || !metadata.countryCode) {
-        this.logger.error(`Missing metadata in payment intent succeeded: ${intent.id}`);
+      if (
+        !metadata ||
+        !metadata.userId ||
+        !metadata.planId ||
+        !metadata.countryCode
+      ) {
+        this.logger.error(
+          `Missing metadata in payment intent succeeded: ${intent.id}`,
+        );
         return;
       }
 
@@ -224,7 +232,9 @@ export class PaymentService {
       });
 
       if (existingOrder) {
-        this.logger.log(`Order already registered for Stripe intent: ${intent.id}`);
+        this.logger.log(
+          `Order already registered for Stripe intent: ${intent.id}`,
+        );
         return;
       }
 
@@ -239,37 +249,18 @@ export class PaymentService {
         },
       });
 
-      this.logger.log(`Created PENDING order ${order.id} for user ${userId} via PaymentIntent. Queueing provisioning job.`);
-
-      const bypassQueue = process.env.BYPASS_QUEUE === 'true' || !process.env.REDIS_HOST;
-      if (bypassQueue) {
-        this.logger.log(`Queue bypass enabled. Provisioning order ${order.id} in-line via PaymentIntent.`);
-        try {
-          await this.esimProvisionService.provision(
-            order.id,
-            planId,
-            intent.receipt_email || '',
-            0,
-          );
-        } catch (err) {
-          this.logger.error(`In-line provisioning failed for order ${order.id} via PaymentIntent: ${(err as Error).message}`);
-        }
-      } else {
-        await this.provisionQueue.add(
-          'provision-esim',
-          {
-            orderId: order.id,
-            userId,
-            planId,
-            email: intent.receipt_email || '',
-          },
-          {
-            attempts: 3,
-            backoff: {
-              type: 'exponential',
-              delay: 5000,
-            },
-          },
+      this.logger.log(
+        `Created PENDING order ${order.id} for user ${userId} via PaymentIntent. Provisioning eSIM inline.`,
+      );
+      try {
+        await this.esimProvisionService.provision(
+          order.id,
+          planId,
+          intent.receipt_email || '',
+        );
+      } catch (err) {
+        this.logger.error(
+          `Inline provisioning failed for order ${order.id} via PaymentIntent: ${(err as Error).message}`,
         );
       }
     }
@@ -278,15 +269,24 @@ export class PaymentService {
   async getOrderStatusBySessionId(sessionId: string): Promise<any> {
     const order = await this.prisma.esimOrder.findFirst({
       where: {
-        OR: [
-          { stripeSessionId: sessionId },
-          { id: sessionId }
-        ]
+        OR: [{ stripeSessionId: sessionId }, { id: sessionId }],
       },
     });
     if (!order) {
       throw new BadRequestException('Order not found.');
     }
     return order;
+  }
+
+  async getOrdersByUserId(userId: string): Promise<any[]> {
+    return this.prisma.esimOrder.findMany({
+      where: {
+        userId,
+        status: OrderStatus.PROVISIONED,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
   }
 }

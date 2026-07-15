@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  Param,
 } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { CheckoutDto } from './dto/checkout.dto';
@@ -74,6 +75,7 @@ export class PaymentController {
       dto.planId,
       dto.countryCode,
       dto.amount,
+      dto.iccid,
     );
     return {
       success: true,
@@ -99,6 +101,7 @@ export class PaymentController {
       dto.planId,
       dto.countryCode,
       dto.amount,
+      dto.iccid,
     );
     return {
       success: true,
@@ -128,6 +131,7 @@ export class PaymentController {
       dto.planId,
       dto.countryCode,
       dto.amount,
+      dto.iccid,
     );
     return {
       success: true,
@@ -182,6 +186,28 @@ export class PaymentController {
     return {
       success: true,
       data: esims,
+    };
+  }
+
+  @Get('esim/:iccid/details')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get live carrier details for a specific eSIM by ICCID',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Carrier details retrieved successfully.',
+  })
+  async getEsimDetails(
+    @GetUser('id') userId: string,
+    @Param('iccid') iccid: string,
+  ): Promise<{ success: boolean; data: any }> {
+    const details = await this.paymentService.getEsimDetails(userId, iccid);
+    return {
+      success: true,
+      data: details,
     };
   }
 }

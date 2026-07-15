@@ -33,6 +33,7 @@ model User {
   sessions                   UserSession[]
   passwordHistories          PasswordHistory[]
   orders                     EsimOrder[]
+  esimProfiles               EsimProfile[]
 }
 
 model UserSession {
@@ -62,19 +63,31 @@ enum OrderStatus {
   FAILED
 }
 
+model EsimProfile {
+  id             String      @id @default(uuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  iccid          String      @unique
+  qrCodeUrl      String
+  smDpAddress    String
+  activationCode String
+  status         String      @default("active") // active, expired, deleted
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  orders         EsimOrder[]
+}
+
 model EsimOrder {
-  id               String      @id @default(uuid())
+  id               String       @id @default(uuid())
   userId           String
-  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  esimProfileId    String?
+  esimProfile      EsimProfile? @relation(fields: [esimProfileId], references: [id], onDelete: SetNull)
   planId           String
   countryCode      String
-  iccid            String?     @unique
-  qrCodeUrl        String?
-  smDpAddress      String?
-  activationCode   String?
-  status           OrderStatus @default(PENDING)
+  status           OrderStatus  @default(PENDING)
   amountPaid       Float
-  stripeSessionId  String?     @unique
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  stripeSessionId  String?      @unique
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 }

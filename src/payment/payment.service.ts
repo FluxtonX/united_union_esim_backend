@@ -1,19 +1,24 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Inject } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import Stripe from 'stripe';
 import { OrderStatus } from '@prisma/client';
 import { EsimProvisionService } from './esim-provision.service';
+import { ESIM_PROVIDER, EsimProvider } from '../providers/interfaces/esim-provider.interface';
+
 
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
   private readonly stripe: Stripe;
+  private readonly provider: EsimProvider;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly esimProvisionService: EsimProvisionService,
+    @Inject(ESIM_PROVIDER) provider: any,
   ) {
+    this.provider = provider as EsimProvider;
     this.stripe = new Stripe(process.env.STRIPE_API_KEY || 'sk_test_mock', {
       apiVersion: '2024-12-18.acacia' as any,
     });
@@ -25,6 +30,7 @@ export class PaymentService {
     planId: string,
     countryCode: string,
     amount: number,
+    iccid?: string,
   ): Promise<{ sessionId: string; url: string | null }> {
     let finalUserId = userId;
     let finalEmail = email;
@@ -73,6 +79,7 @@ export class PaymentService {
           planId,
           countryCode,
           amount: amount.toString(),
+          ...(iccid ? { targetIccid: iccid } : {}),
         },
         success_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/checkout/cancel`,
@@ -96,6 +103,7 @@ export class PaymentService {
     planId: string,
     countryCode: string,
     amount: number,
+    iccid?: string,
   ): Promise<{
     clientSecret: string;
     intentId: string;
@@ -113,6 +121,7 @@ export class PaymentService {
           planId,
           countryCode,
           amount: amount.toString(),
+          ...(iccid ? { targetIccid: iccid } : {}),
         },
       });
 
@@ -167,6 +176,7 @@ export class PaymentService {
       const planId = metadata.planId;
       const countryCode = metadata.countryCode;
       const amountPaid = parseFloat(metadata.amount || '0');
+      const targetIccid = metadata.targetIccid;
 
       // Create Order in PENDING status (idempontency check using stripeSessionId)
       const existingOrder = await this.prisma.esimOrder.findUnique({
@@ -180,6 +190,16 @@ export class PaymentService {
         return;
       }
 
+      let esimProfileId: string | undefined;
+      if (targetIccid) {
+        const profile = await this.prisma.esimProfile.findUnique({
+          where: { iccid: targetIccid },
+        });
+        if (profile) {
+          esimProfileId = profile.id;
+        }
+      }
+
       const order = await this.prisma.esimOrder.create({
         data: {
           userId,
@@ -188,6 +208,7 @@ export class PaymentService {
           status: OrderStatus.PENDING,
           amountPaid,
           stripeSessionId: session.id,
+          esimProfileId: esimProfileId || null,
         },
       });
 
@@ -199,6 +220,7 @@ export class PaymentService {
           order.id,
           planId,
           session.customer_details?.email || session.customer_email || '',
+          targetIccid,
         );
       } catch (err) {
         this.logger.error(
@@ -225,10 +247,11 @@ export class PaymentService {
       const planId = metadata.planId;
       const countryCode = metadata.countryCode;
       const amountPaid = parseFloat(metadata.amount || '0');
+      const targetIccid = metadata.targetIccid;
 
       // Create Order in PENDING status (idempontency check using stripeSessionId)
       const existingOrder = await this.prisma.esimOrder.findUnique({
-        where: { stripeSessionId: intent.id }, // Storing intent.id in stripeSessionId field
+        where: { stripeSessionId: intent.id },
       });
 
       if (existingOrder) {
@@ -238,6 +261,16 @@ export class PaymentService {
         return;
       }
 
+      let esimProfileId: string | undefined;
+      if (targetIccid) {
+        const profile = await this.prisma.esimProfile.findUnique({
+          where: { iccid: targetIccid },
+        });
+        if (profile) {
+          esimProfileId = profile.id;
+        }
+      }
+
       const order = await this.prisma.esimOrder.create({
         data: {
           userId,
@@ -245,7 +278,8 @@ export class PaymentService {
           countryCode,
           status: OrderStatus.PENDING,
           amountPaid,
-          stripeSessionId: intent.id, // Using the same field for PaymentIntent ID
+          stripeSessionId: intent.id,
+          esimProfileId: esimProfileId || null,
         },
       });
 
@@ -257,6 +291,7 @@ export class PaymentService {
           order.id,
           planId,
           intent.receipt_email || '',
+          targetIccid,
         );
       } catch (err) {
         this.logger.error(
@@ -271,6 +306,9 @@ export class PaymentService {
       where: {
         OR: [{ stripeSessionId: sessionId }, { id: sessionId }],
       },
+      include: {
+        esimProfile: true,
+      },
     });
     if (!order) {
       throw new BadRequestException('Order not found.');
@@ -279,14 +317,87 @@ export class PaymentService {
   }
 
   async getOrdersByUserId(userId: string): Promise<any[]> {
-    return this.prisma.esimOrder.findMany({
-      where: {
-        userId,
-        status: OrderStatus.PROVISIONED,
+    const profiles = await this.prisma.esimProfile.findMany({
+      where: { userId },
+      include: {
+        orders: {
+          where: { status: OrderStatus.PROVISIONED },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: { updatedAt: 'desc' },
     });
+
+    return Promise.all(
+      profiles.map(async (p) => {
+        const latestOrder = p.orders[0];
+        let dataRemainingBytes = 0;
+        let dataTotalBytes = 0;
+        try {
+          const details = await this.provider.getEsimDetails(p.iccid);
+          dataRemainingBytes = details.dataRemainingBytes;
+          dataTotalBytes = details.dataTotalBytes;
+        } catch (_) {}
+
+        return {
+          id: p.id,
+          iccid: p.iccid,
+          qrCodeUrl: p.qrCodeUrl,
+          smDpAddress: p.smDpAddress,
+          activationCode: p.activationCode,
+          status: p.status,
+          planId: latestOrder?.planId || 'unknown_plan',
+          countryCode: latestOrder?.countryCode || 'US',
+          dataRemainingBytes,
+          dataTotalBytes,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        };
+      }),
+    );
+  }
+
+  async getEsimDetails(userId: string, iccid: string): Promise<any> {
+    // 1. Verify eSIM belongs to the user
+    const profile = await this.prisma.esimProfile.findUnique({
+      where: { iccid },
+    });
+
+    if (!profile || profile.userId !== userId) {
+      throw new BadRequestException('eSIM profile not found or access denied.');
+    }
+
+    // 2. Fetch live details from carrier via Yesim API
+    try {
+      const carrierDetails = await this.provider.getEsimDetails(iccid);
+      return {
+        id: profile.id,
+        iccid: profile.iccid,
+        qrCodeUrl: profile.qrCodeUrl,
+        smDpAddress: profile.smDpAddress,
+        activationCode: profile.activationCode,
+        status: carrierDetails.status, // Live carrier status
+        dataTotalBytes: carrierDetails.dataTotalBytes,
+        dataUsedBytes: carrierDetails.dataUsedBytes,
+        dataRemainingBytes: carrierDetails.dataRemainingBytes,
+        expiresAt: carrierDetails.expiresAt,
+      };
+    } catch (err) {
+      this.logger.error(`Failed to fetch carrier details for ICCID ${iccid}: ${(err as Error).message}`);
+      // Fallback to database profile info on carrier lookup failure
+      return {
+        id: profile.id,
+        iccid: profile.iccid,
+        qrCodeUrl: profile.qrCodeUrl,
+        smDpAddress: profile.smDpAddress,
+        activationCode: profile.activationCode,
+        status: profile.status,
+        dataTotalBytes: 0,
+        dataUsedBytes: 0,
+        dataRemainingBytes: 0,
+        expiresAt: null,
+      };
+    }
   }
 }

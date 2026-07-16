@@ -34,6 +34,7 @@ export class EsimProvisionService {
 
     const order = await this.prisma.esimOrder.findUnique({
       where: { id: orderId },
+      include: { user: true },
     });
 
     if (!order) {
@@ -93,7 +94,21 @@ export class EsimProvisionService {
         );
       } else {
         // 2. Provision new eSIM
-        const providerOrder = await this.provider.orderEsim(planId, email);
+        const existingYesimUserId = order.user?.yesimUserId || undefined;
+        const providerOrder = await this.provider.orderEsim(planId, email, existingYesimUserId);
+
+        // If Yesim returned a new user_id, persist it to the User model
+        if (providerOrder.yesimUserId && providerOrder.yesimUserId !== existingYesimUserId) {
+          try {
+            await this.prisma.user.update({
+              where: { id: order.userId },
+              data: { yesimUserId: providerOrder.yesimUserId },
+            });
+            this.logger.log(`Saved Yesim user ID: ${providerOrder.yesimUserId} to database for local user ${order.userId}`);
+          } catch (dbErr) {
+            this.logger.error(`Failed to save yesimUserId to User: ${(dbErr as Error).message}`);
+          }
+        }
 
         // Create new eSIM profile in database
         const profile = await this.prisma.esimProfile.create({

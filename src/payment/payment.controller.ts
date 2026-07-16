@@ -210,4 +210,20 @@ export class PaymentController {
       data: details,
     };
   }
+
+  @Post('yesim-webhook')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Yesim Webhook Listener for eSIM Status and Data updates',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Yesim webhook processed successfully.',
+  })
+  async handleYesimWebhook(
+    @Body() payload: any,
+  ): Promise<{ success: boolean }> {
+    await this.paymentService.handleYesimWebhook(payload);
+    return { success: true };
+  }
 }

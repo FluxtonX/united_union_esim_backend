@@ -1,9 +1,10 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import {
   ESIM_PROVIDER,
   EsimProvider,
   ProviderPlan,
 } from '../providers/interfaces/esim-provider.interface';
+import { PrismaService } from '../database/prisma.service';
 
 export interface CountryListItem {
   name: string;
@@ -14,9 +15,14 @@ export interface CountryListItem {
 }
 
 @Injectable()
-export class CatalogService {
+export class CatalogService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(CatalogService.name);
   private readonly provider: EsimProvider;
-  constructor(@Inject(ESIM_PROVIDER) provider: any) {
+
+  constructor(
+    @Inject(ESIM_PROVIDER) provider: any,
+    private readonly prisma: PrismaService,
+  ) {
     this.provider = provider as EsimProvider;
   }
 
@@ -75,5 +81,83 @@ export class CatalogService {
 
     const plans = await this.provider.getPlans(code);
     return plans.filter((p) => !p.isTopUp);
+  }
+
+  async onApplicationBootstrap() {
+    try {
+      const count = await this.prisma.supportedDevice.count();
+      if (count === 0) {
+        this.logger.log('No supported devices found in database. Triggering initial Yesim sync...');
+        await this.syncSupportedDevices();
+      }
+    } catch (err) {
+      this.logger.error(`Failed to auto-sync supported devices on startup: ${(err as Error).message}`);
+    }
+  }
+
+  async syncSupportedDevices(): Promise<number> {
+    try {
+      const devices = await this.provider.getSupportedDevices();
+      let upsertedCount = 0;
+
+      for (const d of devices) {
+        try {
+          await this.prisma.supportedDevice.upsert({
+            where: {
+              brand_model: {
+                brand: d.brand,
+                model: d.model,
+              },
+            },
+            update: {
+              type: d.type,
+            },
+            create: {
+              type: d.type,
+              brand: d.brand,
+              model: d.model,
+            },
+          });
+          upsertedCount++;
+        } catch (err) {
+          this.logger.warn(`Failed to sync device ${d.brand} ${d.model}: ${(err as Error).message}`);
+        }
+      }
+      this.logger.log(`Successfully synced ${upsertedCount} supported devices from Yesim`);
+      return upsertedCount;
+    } catch (err) {
+      this.logger.error(`Failed to sync supported devices: ${(err as Error).message}`);
+      throw err;
+    }
+  }
+
+  async getDevicesGrouped(): Promise<Record<string, Array<{ model: string; type: string }>>> {
+    const devices = await this.prisma.supportedDevice.findMany({
+      orderBy: [
+        { brand: 'asc' },
+        { model: 'asc' },
+      ],
+    });
+
+    const grouped = devices.reduce((acc, current) => {
+      const { brand, model, type } = current;
+      if (!acc[brand]) {
+        acc[brand] = [];
+      }
+      acc[brand].push({ model, type });
+      return acc;
+    }, {} as Record<string, Array<{ model: string; type: string }>>);
+
+    return grouped;
+  }
+
+  async checkDeviceCompatibility(brand: string, model: string): Promise<boolean> {
+    const dbDevice = await this.prisma.supportedDevice.findFirst({
+      where: {
+        brand: { equals: brand.trim(), mode: 'insensitive' },
+        model: { equals: model.trim(), mode: 'insensitive' },
+      },
+    });
+    return !!dbDevice;
   }
 }

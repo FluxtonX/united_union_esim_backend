@@ -329,33 +329,26 @@ export class PaymentService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    return Promise.all(
-      profiles.map(async (p) => {
-        const latestOrder = p.orders[0];
-        let dataRemainingBytes = 0;
-        let dataTotalBytes = 0;
-        try {
-          const details = await this.provider.getEsimDetails(p.iccid);
-          dataRemainingBytes = details.dataRemainingBytes;
-          dataTotalBytes = details.dataTotalBytes;
-        } catch (_) {}
-
-        return {
-          id: p.id,
-          iccid: p.iccid,
-          qrCodeUrl: p.qrCodeUrl,
-          smDpAddress: p.smDpAddress,
-          activationCode: p.activationCode,
-          status: p.status,
-          planId: latestOrder?.planId || 'unknown_plan',
-          countryCode: latestOrder?.countryCode || 'US',
-          dataRemainingBytes,
-          dataTotalBytes,
-          createdAt: p.createdAt,
-          updatedAt: p.updatedAt,
-        };
-      }),
-    );
+    return profiles.map((p) => {
+      const latestOrder = p.orders[0];
+      return {
+        id: p.id,
+        iccid: p.iccid,
+        qrCodeUrl: p.qrCodeUrl,
+        smDpAddress: p.smDpAddress,
+        activationCode: p.activationCode,
+        status: p.status,
+        statusString: p.statusString,
+        planId: latestOrder?.planId || 'unknown_plan',
+        countryCode: latestOrder?.countryCode || 'US',
+        dataRemainingBytes: Number(p.dataRemainingBytes),
+        dataTotalBytes: Number(p.dataTotalBytes),
+        dataUsedBytes: Number(p.dataUsedBytes),
+        expiresAt: p.expiresAt,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      };
+    });
   }
 
   async getEsimDetails(userId: string, iccid: string): Promise<any> {
@@ -371,13 +364,28 @@ export class PaymentService {
     // 2. Fetch live details from carrier via Yesim API
     try {
       const carrierDetails = await this.provider.getEsimDetails(iccid);
+      
+      // Update local database with live details
+      await this.prisma.esimProfile.update({
+        where: { iccid },
+        data: {
+          status: carrierDetails.status,
+          statusString: carrierDetails.statusString || 'Released',
+          dataTotalBytes: carrierDetails.dataTotalBytes,
+          dataUsedBytes: carrierDetails.dataUsedBytes,
+          dataRemainingBytes: carrierDetails.dataRemainingBytes,
+          expiresAt: carrierDetails.expiresAt,
+        },
+      });
+
       return {
         id: profile.id,
         iccid: profile.iccid,
         qrCodeUrl: profile.qrCodeUrl,
         smDpAddress: profile.smDpAddress,
         activationCode: profile.activationCode,
-        status: carrierDetails.status, // Live carrier status
+        status: carrierDetails.status,
+        statusString: carrierDetails.statusString || 'Released',
         dataTotalBytes: carrierDetails.dataTotalBytes,
         dataUsedBytes: carrierDetails.dataUsedBytes,
         dataRemainingBytes: carrierDetails.dataRemainingBytes,
@@ -393,11 +401,40 @@ export class PaymentService {
         smDpAddress: profile.smDpAddress,
         activationCode: profile.activationCode,
         status: profile.status,
-        dataTotalBytes: 0,
-        dataUsedBytes: 0,
-        dataRemainingBytes: 0,
-        expiresAt: null,
+        statusString: profile.statusString,
+        dataTotalBytes: Number(profile.dataTotalBytes),
+        dataUsedBytes: Number(profile.dataUsedBytes),
+        dataRemainingBytes: Number(profile.dataRemainingBytes),
+        expiresAt: profile.expiresAt,
       };
+    }
+  }
+
+  async handleYesimWebhook(payload: any): Promise<void> {
+    const iccid = payload.iccid;
+    if (!iccid) {
+      this.logger.warn('Yesim webhook received without iccid');
+      return;
+    }
+
+    this.logger.log(`Received Yesim webhook for ICCID: ${iccid}, Type: ${payload.type}`);
+
+    try {
+      const details = await this.provider.getEsimDetails(iccid);
+      await this.prisma.esimProfile.update({
+        where: { iccid },
+        data: {
+          status: details.status,
+          statusString: details.statusString || 'Released',
+          dataTotalBytes: details.dataTotalBytes,
+          dataUsedBytes: details.dataUsedBytes,
+          dataRemainingBytes: details.dataRemainingBytes,
+          expiresAt: details.expiresAt,
+        },
+      });
+      this.logger.log(`Successfully updated eSIM profile for ICCID ${iccid} via webhook details`);
+    } catch (err) {
+      this.logger.error(`Failed to update eSIM profile for ICCID ${iccid} via webhook: ${(err as Error).message}`);
     }
   }
 }

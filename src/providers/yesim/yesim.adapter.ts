@@ -75,9 +75,9 @@ export class YesimAdapter implements EsimProvider {
     return fallbackRate;
   }
 
-  async getPlans(countryCode?: string): Promise<ProviderPlan[]> {
+  async getPlans(countryCode?: string, currency?: string): Promise<ProviderPlan[]> {
     if (this.isMockMode) {
-      return this.getMockPlans(countryCode);
+      return this.getMockPlans(countryCode, currency);
     }
 
     try {
@@ -147,18 +147,41 @@ export class YesimAdapter implements EsimProvider {
       }
 
       const eurToUsdRate = await this.getEurToUsdRate();
+      const markupPercent = parseFloat(process.env.PRICE_MARKUP_PERCENT || '5');
+      const markupMultiplier = 1 + (markupPercent / 100);
 
       // Map plans to standard ProviderPlan interface
       const mappedPlans: ProviderPlan[] = filteredData.map((p) => {
         const rawPrice = parseFloat(p.price || '0');
-        const priceUsd = p.currency === 'USD' ? rawPrice : rawPrice * eurToUsdRate;
+        
+        // USD Price (Compatibility fallback)
+        const basePriceUsd = p.currency === 'USD' ? rawPrice : rawPrice * eurToUsdRate;
+        const markedUpPriceUsd = basePriceUsd * markupMultiplier;
+
+        // Custom selected currency logic: if user wants Euro, do not convert from EUR
+        let price = rawPrice;
+        let selectedCurrency = currency?.toUpperCase() === 'EUR' ? 'EUR' : 'USD';
+
+        if (selectedCurrency === 'EUR') {
+          if (p.currency === 'USD') {
+            price = rawPrice / eurToUsdRate;
+          }
+        } else {
+          if (p.currency === 'EUR') {
+            price = rawPrice * eurToUsdRate;
+          }
+        }
+
+        const markedUpPrice = price * markupMultiplier;
 
         return {
           id: p.id,
           name: p.name || `${p.countries_included || 'eSIM'} Plan`,
           dataGb: parseFloat(p.data || '0'),
           durationDays: parseInt(p.days || '0', 10),
-          priceUsd: parseFloat(priceUsd.toFixed(2)),
+          priceUsd: parseFloat(markedUpPriceUsd.toFixed(2)),
+          price: parseFloat(markedUpPrice.toFixed(2)),
+          currency: selectedCurrency,
           countryCode: countryCode
             ? countryCode.toUpperCase().trim()
             : p.countryIso2 || '',
@@ -634,38 +657,38 @@ export class YesimAdapter implements EsimProvider {
     }
   }
 
-  private getMockPlans(countryCode?: string): ProviderPlan[] {
+  private getMockPlans(countryCode?: string, currency?: string): ProviderPlan[] {
     const code = (countryCode || 'US').toUpperCase();
-    const plans: ProviderPlan[] = [
-      {
-        id: `yesim_${code.toLowerCase()}_1gb_7d`,
-        name: `${code} Lite — 1 GB`,
-        dataGb: 1,
-        durationDays: 7,
-        priceUsd: 4.9,
-        countryCode: code,
-        isTopUp: false,
-      },
-      {
-        id: `yesim_${code.toLowerCase()}_5gb_30d`,
-        name: `${code} Smart — 5 GB`,
-        dataGb: 5,
-        durationDays: 30,
-        priceUsd: 12.5,
-        countryCode: code,
-        isTopUp: false,
-      },
-      {
-        id: `yesim_${code.toLowerCase()}_10gb_30d`,
-        name: `${code} Premium — 10 GB`,
-        dataGb: 10,
-        durationDays: 30,
-        priceUsd: 22.0,
-        countryCode: code,
-        isTopUp: false,
-      },
+    const markupPercent = parseFloat(process.env.PRICE_MARKUP_PERCENT || '5');
+    const markupMultiplier = 1 + (markupPercent / 100);
+    const selectedCurrency = currency?.toUpperCase() === 'EUR' ? 'EUR' : 'USD';
+    const eurToUsd = 1.08;
+
+    const basePlans = [
+      { id: '1gb', name: 'Lite — 1 GB', data: 1, days: 7, rawPrice: 4.9 },
+      { id: '5gb', name: 'Smart — 5 GB', data: 5, days: 30, rawPrice: 12.5 },
+      { id: '10gb', name: 'Premium — 10 GB', data: 10, days: 30, rawPrice: 22.0 },
     ];
 
-    return plans;
+    return basePlans.map((bp) => {
+      const priceUsd = bp.rawPrice * markupMultiplier;
+      let price = bp.rawPrice;
+      if (selectedCurrency === 'EUR') {
+        price = bp.rawPrice / eurToUsd;
+      }
+      const markedUpPrice = price * markupMultiplier;
+
+      return {
+        id: `yesim_${code.toLowerCase()}_${bp.id}_${bp.days}d`,
+        name: `${code} ${bp.name}`,
+        dataGb: bp.data,
+        durationDays: bp.days,
+        priceUsd: parseFloat(priceUsd.toFixed(2)),
+        price: parseFloat(markedUpPrice.toFixed(2)),
+        currency: selectedCurrency,
+        countryCode: code,
+        isTopUp: false,
+      };
+    });
   }
 }

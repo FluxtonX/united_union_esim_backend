@@ -17,8 +17,10 @@ export class CatalogController {
     status: 200,
     description: 'List of countries retrieved successfully.',
   })
-  async getCountries(): Promise<{ success: boolean; data: CountryListItem[] }> {
-    const countries = await this.catalogService.getCountries();
+  async getCountries(
+    @Query('currency') currency?: string,
+  ): Promise<{ success: boolean; data: CountryListItem[] }> {
+    const countries = await this.catalogService.getCountries(currency);
     return {
       success: true,
       data: countries,
@@ -33,11 +35,17 @@ export class CatalogController {
     description: 'ISO 2-letter country code (e.g. US, GB)',
     required: true,
   })
+  @ApiQuery({
+    name: 'currency',
+    description: 'Preferred display currency (USD, EUR)',
+    required: false,
+  })
   @ApiResponse({ status: 200, description: 'Plans retrieved successfully.' })
   async getPlans(
     @Query('country') countryCode: string,
+    @Query('currency') currency?: string,
   ): Promise<{ success: boolean; data: ProviderPlan[] }> {
-    const plans = await this.catalogService.getPlans(countryCode);
+    const plans = await this.catalogService.getPlans(countryCode, currency);
     return {
       success: true,
       data: plans,

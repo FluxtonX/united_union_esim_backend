@@ -12,6 +12,8 @@ export interface CountryListItem {
   flagUrl: string;
   plansCount: number;
   startingPriceUsd: number;
+  startingPrice?: number;
+  currency?: string;
 }
 
 @Injectable()
@@ -43,22 +45,26 @@ export class CatalogService implements OnApplicationBootstrap {
     { name: 'Global', code: 'GLOBAL', flag: '🌐' },
   ];
 
-  async getCountries(): Promise<CountryListItem[]> {
+  async getCountries(currency?: string): Promise<CountryListItem[]> {
     const list: CountryListItem[] = [];
+    const selectedCurrency = currency?.toUpperCase() === 'EUR' ? 'EUR' : 'USD';
 
     for (const c of this.supportedCountries) {
       try {
-        const plans = await this.provider.getPlans(c.code);
+        const plans = await this.provider.getPlans(c.code, currency);
         const activePlans = plans.filter((p) => !p.isTopUp);
 
         if (activePlans.length > 0) {
-          const minPrice = Math.min(...activePlans.map((p) => p.priceUsd));
+          const minPriceUsd = Math.min(...activePlans.map((p) => p.priceUsd));
+          const minPrice = Math.min(...activePlans.map((p) => p.price ?? p.priceUsd));
           list.push({
             name: c.name,
             code: c.code,
             flagUrl: c.flag,
             plansCount: activePlans.length,
-            startingPriceUsd: minPrice,
+            startingPriceUsd: minPriceUsd,
+            startingPrice: minPrice,
+            currency: selectedCurrency,
           });
         }
       } catch {
@@ -69,7 +75,7 @@ export class CatalogService implements OnApplicationBootstrap {
     return list;
   }
 
-  async getPlans(countryCode: string): Promise<ProviderPlan[]> {
+  async getPlans(countryCode: string, currency?: string): Promise<ProviderPlan[]> {
     const code = countryCode.toUpperCase().trim();
     const isSupported = this.supportedCountries.some((c) => c.code === code);
 
@@ -79,7 +85,7 @@ export class CatalogService implements OnApplicationBootstrap {
       );
     }
 
-    const plans = await this.provider.getPlans(code);
+    const plans = await this.provider.getPlans(code, currency);
     return plans.filter((p) => !p.isTopUp);
   }
 

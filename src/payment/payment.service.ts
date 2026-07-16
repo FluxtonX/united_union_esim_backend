@@ -31,6 +31,7 @@ export class PaymentService {
     countryCode: string,
     amount: number,
     iccid?: string,
+    currency?: string,
   ): Promise<{ sessionId: string; url: string | null }> {
     let finalUserId = userId;
     let finalEmail = email;
@@ -57,12 +58,13 @@ export class PaymentService {
     }
 
     try {
+      const selectedCurrency = currency?.toLowerCase() === 'eur' ? 'eur' : 'usd';
       const session = await this.stripe.checkout.sessions.create({
         payment_method_types: ['card'],
         line_items: [
           {
             price_data: {
-              currency: 'usd',
+              currency: selectedCurrency,
               product_data: {
                 name: `eSIM Data Plan - ${planId.toUpperCase()}`,
                 description: `Travel eSIM for country: ${countryCode.toUpperCase()}`,
@@ -79,6 +81,7 @@ export class PaymentService {
           planId,
           countryCode,
           amount: amount.toString(),
+          currency: selectedCurrency.toUpperCase(),
           ...(iccid ? { targetIccid: iccid } : {}),
         },
         success_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -104,6 +107,7 @@ export class PaymentService {
     countryCode: string,
     amount: number,
     iccid?: string,
+    currency?: string,
   ): Promise<{
     clientSecret: string;
     intentId: string;
@@ -112,15 +116,17 @@ export class PaymentService {
     try {
       // For real-world apps, you'd find or create the Stripe Customer here.
       // For this demo, we'll just create the intent directly.
+      const selectedCurrency = currency?.toLowerCase() === 'eur' ? 'eur' : 'usd';
       const intent = await this.stripe.paymentIntents.create({
         amount: Math.round(amount * 100), // convert to cents
-        currency: 'usd',
+        currency: selectedCurrency,
         receipt_email: email,
         metadata: {
           userId,
           planId,
           countryCode,
           amount: amount.toString(),
+          currency: selectedCurrency.toUpperCase(),
           ...(iccid ? { targetIccid: iccid } : {}),
         },
       });

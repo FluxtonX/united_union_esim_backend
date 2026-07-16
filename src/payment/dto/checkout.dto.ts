@@ -17,6 +17,11 @@ export class CheckoutDto {
   @Min(0.5, { message: 'Minimum checkout price is $0.50' })
   amount!: number;
 
+  @ApiProperty({ example: 'USD', required: false })
+  @IsString()
+  @IsOptional()
+  currency?: string;
+
   @ApiProperty({ example: '8937204017...', required: false })
   @IsString()
   @IsOptional()

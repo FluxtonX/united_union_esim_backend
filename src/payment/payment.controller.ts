@@ -76,6 +76,7 @@ export class PaymentController {
       dto.countryCode,
       dto.amount,
       dto.iccid,
+      dto.currency,
     );
     return {
       success: true,
@@ -102,6 +103,7 @@ export class PaymentController {
       dto.countryCode,
       dto.amount,
       dto.iccid,
+      dto.currency,
     );
     return {
       success: true,
@@ -132,6 +134,7 @@ export class PaymentController {
       dto.countryCode,
       dto.amount,
       dto.iccid,
+      dto.currency,
     );
     return {
       success: true,

@@ -4,6 +4,8 @@ export interface ProviderPlan {
   dataGb: number;
   durationDays: number;
   priceUsd: number;
+  price?: number;
+  currency?: string;
   countryCode: string;
   isTopUp: boolean;
 }
@@ -28,7 +30,7 @@ export interface ProviderEsimDetails {
 }
 
 export interface EsimProvider {
-  getPlans(countryCode?: string): Promise<ProviderPlan[]>;
+  getPlans(countryCode?: string, currency?: string): Promise<ProviderPlan[]>;
   orderEsim(planId: string, email: string, yesimUserId?: string): Promise<ProviderOrder>;
   getEsimDetails(iccid: string): Promise<ProviderEsimDetails>;
   topupEsim(iccid: string, planId: string): Promise<ProviderOrder>;

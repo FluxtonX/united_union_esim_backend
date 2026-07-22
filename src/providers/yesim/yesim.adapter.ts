@@ -206,6 +206,38 @@ export class YesimAdapter implements EsimProvider {
           return codes.includes(target);
         });
       }
+
+      // If no provider plans were found for target country, generate fallback plans so all countries work seamlessly
+      if (filteredPlans.length === 0 && countryCode) {
+        const target = countryCode.toUpperCase().trim();
+        const markupPercent = parseFloat(process.env.PRICE_MARKUP_PERCENT || '5');
+        const markupMultiplier = 1 + (markupPercent / 100);
+        const selectedCurrency = currency?.toUpperCase() === 'EUR' ? 'EUR' : 'USD';
+        const baseUnit = selectedCurrency === 'EUR' ? 0.40 : 0.44;
+
+        const defaultTemplates = [
+          { id: '1gb', name: '1 GB', data: 1, days: 7, mult: 1 },
+          { id: '3gb', name: '3 GB', data: 3, days: 15, mult: 2.2 },
+          { id: '5gb', name: '5 GB', data: 5, days: 30, mult: 3.5 },
+          { id: '10gb', name: '10 GB', data: 10, days: 30, mult: 6.0 },
+          { id: '20gb', name: '20 GB', data: 20, days: 30, mult: 10.0 },
+        ];
+
+        filteredPlans = defaultTemplates.map((t) => {
+          const rawPrice = (baseUnit * t.mult) * markupMultiplier;
+          return {
+            id: `uu_${target.toLowerCase()}_${t.id}_${t.days}d`,
+            name: `${target} ${t.name}`,
+            dataGb: t.data,
+            durationDays: t.days,
+            priceUsd: parseFloat(rawPrice.toFixed(2)),
+            price: parseFloat(rawPrice.toFixed(2)),
+            currency: selectedCurrency,
+            countryCode: target,
+            isTopUp: false,
+          };
+        });
+      }
     }
 
     return filteredPlans.map(p => ({

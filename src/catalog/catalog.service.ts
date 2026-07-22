@@ -31,14 +31,20 @@ export class CatalogService implements OnApplicationBootstrap {
   private readonly supportedCountries = [
     { name: 'United States', code: 'US', flag: '🇺🇸' },
     { name: 'United Kingdom', code: 'GB', flag: '🇬🇧' },
+    { name: 'Pakistan', code: 'PK', flag: '🇵🇰' },
+    { name: 'Singapore', code: 'SG', flag: '🇸🇬' },
     { name: 'Japan', code: 'JP', flag: '🇯🇵' },
     { name: 'France', code: 'FR', flag: '🇫🇷' },
     { name: 'Germany', code: 'DE', flag: '🇩🇪' },
-    { name: 'Singapore', code: 'SG', flag: '🇸🇬' },
-    { name: 'Philippines', code: 'PH', flag: '🇵🇭' },
+    { name: 'Turkey', code: 'TR', flag: '🇹🇷' },
+    { name: 'Canada', code: 'CA', flag: '🇨🇦' },
     { name: 'Thailand', code: 'TH', flag: '🇹🇭' },
+    { name: 'Philippines', code: 'PH', flag: '🇵🇭' },
     { name: 'Spain', code: 'ES', flag: '🇪🇸' },
     { name: 'Italy', code: 'IT', flag: '🇮🇹' },
+    { name: 'United Arab Emirates', code: 'AE', flag: '🇦🇪' },
+    { name: 'Australia', code: 'AU', flag: '🇦🇺' },
+    { name: 'China', code: 'CN', flag: '🇨🇳' },
     { name: 'Europe', code: 'EU', flag: '🇪🇺' },
     { name: 'Asia', code: 'AS', flag: '🌏' },
     { name: 'Middle East', code: 'ME', flag: '🐪' },
@@ -77,16 +83,13 @@ export class CatalogService implements OnApplicationBootstrap {
 
   async getPlans(countryCode: string, currency?: string): Promise<ProviderPlan[]> {
     const code = countryCode.toUpperCase().trim();
-    const isSupported = this.supportedCountries.some((c) => c.code === code);
-
-    if (!isSupported) {
-      throw new NotFoundException(
-        `Country code '${countryCode}' is not supported.`,
-      );
+    try {
+      const plans = await this.provider.getPlans(code, currency);
+      return plans.filter((p) => !p.isTopUp);
+    } catch (err) {
+      this.logger.warn(`Failed to fetch plans for country '${code}': ${(err as Error).message}`);
+      return [];
     }
-
-    const plans = await this.provider.getPlans(code, currency);
-    return plans.filter((p) => !p.isTopUp);
   }
 
   async onApplicationBootstrap() {

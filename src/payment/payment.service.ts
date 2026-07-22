@@ -335,9 +335,26 @@ export class PaymentService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    return profiles.map((p) => {
+    const mapped: any[] = [];
+    for (const p of profiles) {
       const latestOrder = p.orders[0];
-      return {
+      let planName = 'eSIM Plan';
+      let dataGb = 5.0; // Default fallback
+
+      if (latestOrder) {
+        try {
+          const plans = await this.provider.getPlans(latestOrder.countryCode);
+          const matchedPlan = plans.find(plan => plan.id === latestOrder.planId);
+          if (matchedPlan) {
+            planName = matchedPlan.name;
+            dataGb = matchedPlan.dataGb;
+          }
+        } catch (err) {
+          this.logger.warn(`Could not resolve plan name from provider: ${err.message}`);
+        }
+      }
+
+      mapped.push({
         id: p.id,
         iccid: p.iccid,
         qrCodeUrl: p.qrCodeUrl,
@@ -346,6 +363,8 @@ export class PaymentService {
         status: p.status,
         statusString: p.statusString,
         planId: latestOrder?.planId || 'unknown_plan',
+        planName,
+        dataGb,
         countryCode: latestOrder?.countryCode || 'US',
         dataRemainingBytes: Number(p.dataRemainingBytes),
         dataTotalBytes: Number(p.dataTotalBytes),
@@ -353,18 +372,44 @@ export class PaymentService {
         expiresAt: p.expiresAt,
         createdAt: p.createdAt,
         updatedAt: p.updatedAt,
-      };
-    });
+      });
+    }
+
+    return mapped;
   }
 
   async getEsimDetails(userId: string, iccid: string): Promise<any> {
     // 1. Verify eSIM belongs to the user
     const profile = await this.prisma.esimProfile.findUnique({
       where: { iccid },
+      include: {
+        orders: {
+          where: { status: OrderStatus.PROVISIONED },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
     });
 
     if (!profile || profile.userId !== userId) {
       throw new BadRequestException('eSIM profile not found or access denied.');
+    }
+
+    const latestOrder = profile.orders[0];
+    let planName = 'eSIM Plan';
+    let dataGb = 5.0;
+
+    if (latestOrder) {
+      try {
+        const plans = await this.provider.getPlans(latestOrder.countryCode);
+        const matchedPlan = plans.find(plan => plan.id === latestOrder.planId);
+        if (matchedPlan) {
+          planName = matchedPlan.name;
+          dataGb = matchedPlan.dataGb;
+        }
+      } catch (err) {
+        this.logger.warn(`Could not resolve plan name from provider: ${err.message}`);
+      }
     }
 
     // 2. Fetch live details from carrier via Yesim API
@@ -377,9 +422,9 @@ export class PaymentService {
         data: {
           status: carrierDetails.status,
           statusString: carrierDetails.statusString || 'Released',
-          dataTotalBytes: carrierDetails.dataTotalBytes,
-          dataUsedBytes: carrierDetails.dataUsedBytes,
-          dataRemainingBytes: carrierDetails.dataRemainingBytes,
+          dataTotalBytes: carrierDetails.dataTotalBytes ? Math.round(carrierDetails.dataTotalBytes) : 0,
+          dataUsedBytes: carrierDetails.dataUsedBytes ? Math.round(carrierDetails.dataUsedBytes) : 0,
+          dataRemainingBytes: carrierDetails.dataRemainingBytes ? Math.round(carrierDetails.dataRemainingBytes) : 0,
           expiresAt: carrierDetails.expiresAt,
         },
       });
@@ -396,6 +441,10 @@ export class PaymentService {
         dataUsedBytes: carrierDetails.dataUsedBytes,
         dataRemainingBytes: carrierDetails.dataRemainingBytes,
         expiresAt: carrierDetails.expiresAt,
+        planId: latestOrder?.planId || 'unknown_plan',
+        planName,
+        dataGb,
+        countryCode: latestOrder?.countryCode || 'US',
       };
     } catch (err) {
       this.logger.error(`Failed to fetch carrier details for ICCID ${iccid}: ${(err as Error).message}`);
@@ -412,6 +461,10 @@ export class PaymentService {
         dataUsedBytes: Number(profile.dataUsedBytes),
         dataRemainingBytes: Number(profile.dataRemainingBytes),
         expiresAt: profile.expiresAt,
+        planId: latestOrder?.planId || 'unknown_plan',
+        planName,
+        dataGb,
+        countryCode: latestOrder?.countryCode || 'US',
       };
     }
   }
@@ -432,9 +485,9 @@ export class PaymentService {
         data: {
           status: details.status,
           statusString: details.statusString || 'Released',
-          dataTotalBytes: details.dataTotalBytes,
-          dataUsedBytes: details.dataUsedBytes,
-          dataRemainingBytes: details.dataRemainingBytes,
+          dataTotalBytes: details.dataTotalBytes ? Math.round(details.dataTotalBytes) : 0,
+          dataUsedBytes: details.dataUsedBytes ? Math.round(details.dataUsedBytes) : 0,
+          dataRemainingBytes: details.dataRemainingBytes ? Math.round(details.dataRemainingBytes) : 0,
           expiresAt: details.expiresAt,
         },
       });

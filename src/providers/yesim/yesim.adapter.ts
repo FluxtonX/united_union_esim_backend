@@ -51,6 +51,10 @@ export class YesimAdapter implements EsimProvider {
   private readonly apiToken: string;
   private readonly isMockMode: boolean;
 
+  private cachedPlans: ProviderPlan[] | null = null;
+  private cachedPlansTimestamp = 0;
+  private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
+
   constructor() {
     this.apiUrl = process.env.YESIM_API_URL || 'https://partners-api.yesim.biz';
     this.apiToken = process.env.YESIM_API_TOKEN || '';
@@ -80,122 +84,134 @@ export class YesimAdapter implements EsimProvider {
       return this.getMockPlans(countryCode, currency);
     }
 
-    try {
-      const response = await fetch(
-        `${this.apiUrl}/plans?token=${this.apiToken}`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
+    const now = Date.now();
+    let plans: ProviderPlan[] = [];
+
+    if (this.cachedPlans && (now - this.cachedPlansTimestamp < this.CACHE_TTL_MS)) {
+      plans = this.cachedPlans;
+    } else {
+      try {
+        const response = await fetch(
+          `${this.apiUrl}/plans?token=${this.apiToken}`,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+            },
           },
-        },
-      );
+        );
 
-      if (!response.ok) {
-        throw new Error(`Yesim API error: ${response.statusText}`);
-      }
-
-      const data = (await response.json()) as YesimPlan[];
-      if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'string') {
-        throw new Error(data[0]);
-      }
-
-      let filteredData = data;
-      if (countryCode) {
-        const target = countryCode.toUpperCase().trim();
-        if (target === 'EU' || target === 'EUROPE') {
-          filteredData = data.filter(
-            (p) =>
-              p.plan_type === 'region' &&
-              (p.countries_included?.toLowerCase().includes('europe') ||
-                p.name?.toLowerCase().includes('europe') ||
-                p.countryIso2?.toUpperCase() === 'EU'),
-          );
-        } else if (target === 'AS' || target === 'ASIA') {
-          filteredData = data.filter(
-            (p) =>
-              p.plan_type === 'region' &&
-              (p.countries_included?.toLowerCase().includes('asia') ||
-                p.name?.toLowerCase().includes('asia') ||
-                p.countryIso2?.toUpperCase() === 'AS'),
-          );
-        } else if (target === 'ME' || target === 'MIDDLE EAST') {
-          filteredData = data.filter(
-            (p) =>
-              p.plan_type === 'region' &&
-              (p.countries_included?.toLowerCase().includes('middle east') ||
-                p.name?.toLowerCase().includes('middle east') ||
-                p.countryIso2?.toUpperCase() === 'ME'),
-          );
-        } else if (target === 'GLOBAL') {
-          filteredData = data.filter(
-            (p) =>
-              p.plan_type === 'region' &&
-              (p.countries_included?.toLowerCase().includes('global') ||
-                p.name?.toLowerCase().includes('global') ||
-                p.countryIso2?.toUpperCase() === 'GLOBAL'),
-          );
-        } else {
-          filteredData = data.filter((p) => {
-            if (!p.countryIso2) return false;
-            const codes = p.countryIso2
-              .toUpperCase()
-              .split(',')
-              .map((c) => c.trim());
-            return codes.includes(target);
-          });
-        }
-      }
-
-      const eurToUsdRate = await this.getEurToUsdRate();
-      const markupPercent = parseFloat(process.env.PRICE_MARKUP_PERCENT || '5');
-      const markupMultiplier = 1 + (markupPercent / 100);
-
-      // Map plans to standard ProviderPlan interface
-      const mappedPlans: ProviderPlan[] = filteredData.map((p) => {
-        const rawPrice = parseFloat(p.price || '0');
-        
-        // USD Price (Compatibility fallback)
-        const basePriceUsd = p.currency === 'USD' ? rawPrice : rawPrice * eurToUsdRate;
-        const markedUpPriceUsd = basePriceUsd * markupMultiplier;
-
-        // Custom selected currency logic: if user wants Euro, do not convert from EUR
-        let price = rawPrice;
-        let selectedCurrency = currency?.toUpperCase() === 'EUR' ? 'EUR' : 'USD';
-
-        if (selectedCurrency === 'EUR') {
-          if (p.currency === 'USD') {
-            price = rawPrice / eurToUsdRate;
-          }
-        } else {
-          if (p.currency === 'EUR') {
-            price = rawPrice * eurToUsdRate;
-          }
+        if (!response.ok) {
+          throw new Error(`Yesim API error: ${response.statusText}`);
         }
 
-        const markedUpPrice = price * markupMultiplier;
+        const data = (await response.json()) as YesimPlan[];
+        if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'string') {
+          throw new Error(data[0]);
+        }
 
-        return {
-          id: p.id,
-          name: p.name || `${p.countries_included || 'eSIM'} Plan`,
-          dataGb: parseFloat(p.data || '0'),
-          durationDays: parseInt(p.days || '0', 10),
-          priceUsd: parseFloat(markedUpPriceUsd.toFixed(2)),
-          price: parseFloat(markedUpPrice.toFixed(2)),
-          currency: selectedCurrency,
-          countryCode: countryCode
-            ? countryCode.toUpperCase().trim()
-            : p.countryIso2 || '',
-          isTopUp: false,
-        };
-      });
+        const eurToUsdRate = await this.getEurToUsdRate();
+        const markupPercent = parseFloat(process.env.PRICE_MARKUP_PERCENT || '5');
+        const markupMultiplier = 1 + (markupPercent / 100);
 
-      return mappedPlans;
-    } catch (err) {
-      this.logger.error(
-        `Failed to fetch plans from Yesim: ${(err as Error).message}`,
-      );
-      throw err;
+        // Map plans to standard ProviderPlan interface
+        plans = data.map((p) => {
+          const rawPrice = parseFloat(p.price || '0');
+          
+          // USD Price (Compatibility fallback)
+          const basePriceUsd = p.currency === 'USD' ? rawPrice : rawPrice * eurToUsdRate;
+          const markedUpPriceUsd = basePriceUsd * markupMultiplier;
+
+          // Custom selected currency logic: if user wants Euro, do not convert from EUR
+          let price = rawPrice;
+          let selectedCurrency = currency?.toUpperCase() === 'EUR' ? 'EUR' : 'USD';
+
+          if (selectedCurrency === 'EUR') {
+            if (p.currency === 'USD') {
+              price = rawPrice / eurToUsdRate;
+            }
+          } else {
+            if (p.currency === 'EUR') {
+              price = rawPrice * eurToUsdRate;
+            }
+          }
+
+          const markedUpPrice = price * markupMultiplier;
+
+          return {
+            id: p.id,
+            name: p.name || `${p.countries_included || 'eSIM'} Plan`,
+            dataGb: parseFloat(p.data || '0'),
+            durationDays: parseInt(p.days || '0', 10),
+            priceUsd: parseFloat(markedUpPriceUsd.toFixed(2)),
+            price: parseFloat(markedUpPrice.toFixed(2)),
+            currency: selectedCurrency,
+            countryCode: p.countryIso2 || '',
+            isTopUp: false,
+          };
+        });
+
+        this.cachedPlans = plans;
+        this.cachedPlansTimestamp = now;
+      } catch (err) {
+        this.logger.error(
+          `Failed to fetch plans from Yesim: ${(err as Error).message}`,
+        );
+        if (this.cachedPlans) {
+          plans = this.cachedPlans;
+        } else {
+          throw err;
+        }
+      }
     }
+
+    // Now filter plans by target countryCode in memory
+    let filteredPlans = plans;
+    if (countryCode) {
+      const target = countryCode.toUpperCase().trim();
+      if (target === 'EU' || target === 'EUROPE') {
+        filteredPlans = plans.filter(
+          (p) =>
+            p.countryCode?.toLowerCase().includes('europe') ||
+            p.name?.toLowerCase().includes('europe') ||
+            p.countryCode?.toUpperCase() === 'EU',
+        );
+      } else if (target === 'AS' || target === 'ASIA') {
+        filteredPlans = plans.filter(
+          (p) =>
+            p.countryCode?.toLowerCase().includes('asia') ||
+            p.name?.toLowerCase().includes('asia') ||
+            p.countryCode?.toUpperCase() === 'AS',
+        );
+      } else if (target === 'ME' || target === 'MIDDLE EAST') {
+        filteredPlans = plans.filter(
+          (p) =>
+            p.countryCode?.toLowerCase().includes('middle east') ||
+            p.name?.toLowerCase().includes('middle east') ||
+            p.countryCode?.toUpperCase() === 'ME',
+        );
+      } else if (target === 'GLOBAL') {
+        filteredPlans = plans.filter(
+          (p) =>
+            p.countryCode?.toLowerCase().includes('global') ||
+            p.name?.toLowerCase().includes('global') ||
+            p.countryCode?.toUpperCase() === 'GLOBAL',
+        );
+      } else {
+        filteredPlans = plans.filter((p) => {
+          if (!p.countryCode) return false;
+          const codes = p.countryCode
+            .toUpperCase()
+            .split(',')
+            .map((c) => c.trim());
+          return codes.includes(target);
+        });
+      }
+    }
+
+    return filteredPlans.map(p => ({
+      ...p,
+      countryCode: countryCode ? countryCode.toUpperCase().trim() : p.countryCode,
+    }));
   }
 
   async orderEsim(

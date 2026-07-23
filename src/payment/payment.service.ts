@@ -24,6 +24,28 @@ export class PaymentService {
     });
   }
 
+  async getYesimBalance(): Promise<{ balance: number; currency: string }> {
+    return await this.provider.getBalance();
+  }
+
+  private async checkYesimBalanceBeforeCheckout(): Promise<void> {
+    try {
+      const balanceData = await this.provider.getBalance();
+      this.logger.log(
+        `[Pre-Checkout Check] Yesim partner balance verified: ${balanceData.balance} ${balanceData.currency}`,
+      );
+      if (typeof balanceData.balance === 'number' && balanceData.balance <= 0) {
+        this.logger.warn(
+          `Yesim partner balance is zero or low (${balanceData.balance} ${balanceData.currency}).`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Pre-checkout Yesim partner balance check notice: ${(err as Error).message}`,
+      );
+    }
+  }
+
   async createCheckoutSession(
     userId: string | undefined,
     email: string | undefined,
@@ -33,6 +55,9 @@ export class PaymentService {
     iccid?: string,
     currency?: string,
   ): Promise<{ sessionId: string; url: string | null }> {
+    // Confirm Yesim partner balance / status before checkout
+    await this.checkYesimBalanceBeforeCheckout();
+
     let finalUserId = userId;
     let finalEmail = email;
 
@@ -113,6 +138,9 @@ export class PaymentService {
     intentId: string;
     customerId: string | null;
   }> {
+    // Confirm Yesim partner balance / status before checkout
+    await this.checkYesimBalanceBeforeCheckout();
+
     try {
       // For real-world apps, you'd find or create the Stripe Customer here.
       // For this demo, we'll just create the intent directly.

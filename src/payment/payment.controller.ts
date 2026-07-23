@@ -30,6 +30,23 @@ import {
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
+  @Get('yesim-balance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check current Yesim partner account balance',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Yesim partner balance retrieved successfully.',
+  })
+  async getYesimBalance(): Promise<{ success: boolean; data: any }> {
+    const balanceInfo = await this.paymentService.getYesimBalance();
+    return {
+      success: true,
+      data: balanceInfo,
+    };
+  }
+
   @Get('order-status')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

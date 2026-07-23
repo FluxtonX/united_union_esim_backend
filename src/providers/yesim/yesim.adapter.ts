@@ -213,7 +213,7 @@ export class YesimAdapter implements EsimProvider {
         const markupPercent = parseFloat(process.env.PRICE_MARKUP_PERCENT || '5');
         const markupMultiplier = 1 + (markupPercent / 100);
         const selectedCurrency = currency?.toUpperCase() === 'EUR' ? 'EUR' : 'USD';
-        const baseUnit = selectedCurrency === 'EUR' ? 0.40 : 0.44;
+        const baseUnit = 0.10;
 
         const defaultTemplates = [
           { id: '1gb', name: '1 GB', data: 1, days: 7, mult: 1 },

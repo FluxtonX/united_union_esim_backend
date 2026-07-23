@@ -119,7 +119,6 @@ export class YesimAdapter implements EsimProvider {
           
           // USD Price (Compatibility fallback)
           const basePriceUsd = p.currency === 'USD' ? rawPrice : rawPrice * eurToUsdRate;
-          const markedUpPriceUsd = basePriceUsd * markupMultiplier;
 
           // Custom selected currency logic: if user wants Euro, do not convert from EUR
           let price = rawPrice;
@@ -135,15 +134,24 @@ export class YesimAdapter implements EsimProvider {
             }
           }
 
-          const markedUpPrice = price * markupMultiplier;
+          // Dynamic markup: 15% for low-cost plans under 0.50 to cover gateway minimums, 5% for others
+          const effectiveMarkupPercentUsd = basePriceUsd < 0.50 ? 15 : markupPercent;
+          const effectiveMarkupPercent = price < 0.50 ? 15 : markupPercent;
+
+          let finalPriceUsd = basePriceUsd * (1 + (effectiveMarkupPercentUsd / 100));
+          let finalPrice = price * (1 + (effectiveMarkupPercent / 100));
+
+          // Ensure final prices meet Stripe's minimum charge requirement (0.50)
+          if (finalPriceUsd < 0.50) finalPriceUsd = 0.50;
+          if (finalPrice < 0.50) finalPrice = 0.50;
 
           return {
             id: p.id,
             name: p.name || `${p.countries_included || 'eSIM'} Plan`,
             dataGb: parseFloat(p.data || '0'),
             durationDays: parseInt(p.days || '0', 10),
-            priceUsd: parseFloat(markedUpPriceUsd.toFixed(2)),
-            price: parseFloat(markedUpPrice.toFixed(2)),
+            priceUsd: parseFloat(finalPriceUsd.toFixed(2)),
+            price: parseFloat(finalPrice.toFixed(2)),
             currency: selectedCurrency,
             countryCode: p.countryIso2 || '',
             isTopUp: false,
@@ -213,7 +221,7 @@ export class YesimAdapter implements EsimProvider {
         const markupPercent = parseFloat(process.env.PRICE_MARKUP_PERCENT || '5');
         const markupMultiplier = 1 + (markupPercent / 100);
         const selectedCurrency = currency?.toUpperCase() === 'EUR' ? 'EUR' : 'USD';
-        const baseUnit = 0.10;
+        const baseUnit = 0.44;
 
         const defaultTemplates = [
           { id: '1gb', name: '1 GB', data: 1, days: 7, mult: 1 },
@@ -224,14 +232,18 @@ export class YesimAdapter implements EsimProvider {
         ];
 
         filteredPlans = defaultTemplates.map((t) => {
-          const rawPrice = (baseUnit * t.mult) * markupMultiplier;
+          const rawPrice = baseUnit * t.mult;
+          const effectiveMarkupPercent = rawPrice < 0.50 ? 15 : markupPercent;
+          let finalPrice = rawPrice * (1 + (effectiveMarkupPercent / 100));
+          if (finalPrice < 0.50) finalPrice = 0.50;
+
           return {
             id: `uu_${target.toLowerCase()}_${t.id}_${t.days}d`,
             name: `${target} ${t.name}`,
             dataGb: t.data,
             durationDays: t.days,
-            priceUsd: parseFloat(rawPrice.toFixed(2)),
-            price: parseFloat(rawPrice.toFixed(2)),
+            priceUsd: parseFloat(finalPrice.toFixed(2)),
+            price: parseFloat(finalPrice.toFixed(2)),
             currency: selectedCurrency,
             countryCode: target,
             isTopUp: false,

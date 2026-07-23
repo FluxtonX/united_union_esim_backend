@@ -24,13 +24,17 @@ export class EsimProvisionService {
     orderId: string,
     planId: string,
     email: string,
+    targetIccid?: string,
   ): Promise<void> {
     this.logger.log(
-      `[EsimProvisionService] Starting provisioning for Order: ${orderId}`,
+      `[EsimProvisionService] Starting provisioning for Order: ${orderId}${
+        targetIccid ? ` (Top-up ICCID: ${targetIccid})` : ''
+      }`,
     );
 
     const order = await this.prisma.esimOrder.findUnique({
       where: { id: orderId },
+      include: { user: true },
     });
 
     if (!order) {
@@ -48,39 +52,104 @@ export class EsimProvisionService {
     }
 
     try {
-      // Provision eSIM from provider (Yesim API)
-      const providerOrder = await this.provider.orderEsim(planId, email);
+      if (targetIccid) {
+        // 1. Perform Top-up for existing eSIM
+        const providerOrder = await this.provider.topupEsim(targetIccid, planId);
 
-      // Update database status to PROVISIONED
-      await this.prisma.esimOrder.update({
-        where: { id: orderId },
-        data: {
-          status: OrderStatus.PROVISIONED,
-          iccid: providerOrder.iccid,
-          qrCodeUrl: providerOrder.qrCodeUrl,
-          smDpAddress: providerOrder.smDpAddress,
-          activationCode: providerOrder.activationCode,
-        },
-      });
+        // Find existing eSIM profile
+        let profile = await this.prisma.esimProfile.findUnique({
+          where: { iccid: targetIccid },
+        });
 
-      this.logger.log(
-        `Order ${orderId} successfully provisioned with ICCID: ${providerOrder.iccid}`,
-      );
+        if (!profile) {
+          throw new Error(`eSIM profile for ICCID ${targetIccid} not found in database.`);
+        }
 
-      // Email eSIM activation credentials to the user
-      await this.mailService.sendEsimDetails(
-        email,
-        providerOrder.iccid,
-        providerOrder.qrCodeUrl,
-        providerOrder.smDpAddress,
-        providerOrder.activationCode,
-      );
+        // Link order to existing profile and mark PROVISIONED
+        await this.prisma.esimOrder.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.PROVISIONED,
+            esimProfileId: profile.id,
+          },
+        });
+
+        // Touch the profile updatedAt
+        await this.prisma.esimProfile.update({
+          where: { id: profile.id },
+          data: { updatedAt: new Date() },
+        });
+
+        this.logger.log(
+          `Order ${orderId} successfully provisioned as top-up on ICCID: ${targetIccid}`,
+        );
+
+        // Email top-up confirmation to the user
+        await this.mailService.sendEsimDetails(
+          email,
+          targetIccid,
+          profile.qrCodeUrl,
+          profile.smDpAddress,
+          profile.activationCode,
+        );
+      } else {
+        // 2. Provision new eSIM
+        const existingYesimUserId = order.user?.yesimUserId || undefined;
+        const providerOrder = await this.provider.orderEsim(planId, email, existingYesimUserId);
+
+        // If Yesim returned a new user_id, persist it to the User model
+        if (providerOrder.yesimUserId && providerOrder.yesimUserId !== existingYesimUserId) {
+          try {
+            await this.prisma.user.update({
+              where: { id: order.userId },
+              data: { yesimUserId: providerOrder.yesimUserId },
+            });
+            this.logger.log(`Saved Yesim user ID: ${providerOrder.yesimUserId} to database for local user ${order.userId}`);
+          } catch (dbErr) {
+            this.logger.error(`Failed to save yesimUserId to User: ${(dbErr as Error).message}`);
+          }
+        }
+
+        // Create new eSIM profile in database
+        const profile = await this.prisma.esimProfile.create({
+          data: {
+            userId: order.userId,
+            iccid: providerOrder.iccid,
+            qrCodeUrl: providerOrder.qrCodeUrl,
+            smDpAddress: providerOrder.smDpAddress,
+            activationCode: providerOrder.activationCode,
+            status: 'active',
+          },
+        });
+
+        // Update database order to PROVISIONED and link to new profile
+        await this.prisma.esimOrder.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.PROVISIONED,
+            esimProfileId: profile.id,
+          },
+        });
+
+        this.logger.log(
+          `Order ${orderId} successfully provisioned with new ICCID: ${providerOrder.iccid}`,
+        );
+
+        // Email new eSIM activation details to the user
+        await this.mailService.sendEsimDetails(
+          email,
+          providerOrder.iccid,
+          providerOrder.qrCodeUrl,
+          providerOrder.smDpAddress,
+          providerOrder.activationCode,
+        );
+      }
     } catch (err) {
       this.logger.error(
         `Failed to provision eSIM for order ${orderId}: ${(err as Error).message}`,
       );
 
-      // Immediately mark as FAILED on synchronous provision error since background queues are removed
+      // Mark order as FAILED
       await this.prisma.esimOrder.update({
         where: { id: orderId },
         data: {

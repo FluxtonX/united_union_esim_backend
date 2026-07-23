@@ -1,22 +1,49 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Inject } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import Stripe from 'stripe';
 import { OrderStatus } from '@prisma/client';
 import { EsimProvisionService } from './esim-provision.service';
+import { ESIM_PROVIDER, EsimProvider } from '../providers/interfaces/esim-provider.interface';
+
 
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
   private readonly stripe: Stripe;
+  private readonly provider: EsimProvider;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly esimProvisionService: EsimProvisionService,
+    @Inject(ESIM_PROVIDER) provider: any,
   ) {
+    this.provider = provider as EsimProvider;
     this.stripe = new Stripe(process.env.STRIPE_API_KEY || 'sk_test_mock', {
       apiVersion: '2024-12-18.acacia' as any,
     });
+  }
+
+  async getYesimBalance(): Promise<{ balance: number; currency: string }> {
+    return await this.provider.getBalance();
+  }
+
+  private async checkYesimBalanceBeforeCheckout(): Promise<void> {
+    try {
+      const balanceData = await this.provider.getBalance();
+      this.logger.log(
+        `[Pre-Checkout Check] Yesim partner balance verified: ${balanceData.balance} ${balanceData.currency}`,
+      );
+      if (typeof balanceData.balance === 'number' && balanceData.balance <= 0) {
+        this.logger.warn(
+          `Yesim partner balance is zero or low (${balanceData.balance} ${balanceData.currency}).`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Pre-checkout Yesim partner balance check notice: ${(err as Error).message}`,
+      );
+    }
   }
 
   async createCheckoutSession(
@@ -25,7 +52,12 @@ export class PaymentService {
     planId: string,
     countryCode: string,
     amount: number,
+    iccid?: string,
+    currency?: string,
   ): Promise<{ sessionId: string; url: string | null }> {
+    // Confirm Yesim partner balance / status before checkout
+    await this.checkYesimBalanceBeforeCheckout();
+
     let finalUserId = userId;
     let finalEmail = email;
 
@@ -51,12 +83,13 @@ export class PaymentService {
     }
 
     try {
+      const selectedCurrency = currency?.toLowerCase() === 'eur' ? 'eur' : 'usd';
       const session = await this.stripe.checkout.sessions.create({
         payment_method_types: ['card'],
         line_items: [
           {
             price_data: {
-              currency: 'usd',
+              currency: selectedCurrency,
               product_data: {
                 name: `eSIM Data Plan - ${planId.toUpperCase()}`,
                 description: `Travel eSIM for country: ${countryCode.toUpperCase()}`,
@@ -73,6 +106,8 @@ export class PaymentService {
           planId,
           countryCode,
           amount: amount.toString(),
+          currency: selectedCurrency.toUpperCase(),
+          ...(iccid ? { targetIccid: iccid } : {}),
         },
         success_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/checkout/cancel`,
@@ -96,23 +131,31 @@ export class PaymentService {
     planId: string,
     countryCode: string,
     amount: number,
+    iccid?: string,
+    currency?: string,
   ): Promise<{
     clientSecret: string;
     intentId: string;
     customerId: string | null;
   }> {
+    // Confirm Yesim partner balance / status before checkout
+    await this.checkYesimBalanceBeforeCheckout();
+
     try {
       // For real-world apps, you'd find or create the Stripe Customer here.
       // For this demo, we'll just create the intent directly.
+      const selectedCurrency = currency?.toLowerCase() === 'eur' ? 'eur' : 'usd';
       const intent = await this.stripe.paymentIntents.create({
         amount: Math.round(amount * 100), // convert to cents
-        currency: 'usd',
+        currency: selectedCurrency,
         receipt_email: email,
         metadata: {
           userId,
           planId,
           countryCode,
           amount: amount.toString(),
+          currency: selectedCurrency.toUpperCase(),
+          ...(iccid ? { targetIccid: iccid } : {}),
         },
       });
 
@@ -167,6 +210,7 @@ export class PaymentService {
       const planId = metadata.planId;
       const countryCode = metadata.countryCode;
       const amountPaid = parseFloat(metadata.amount || '0');
+      const targetIccid = metadata.targetIccid;
 
       // Create Order in PENDING status (idempontency check using stripeSessionId)
       const existingOrder = await this.prisma.esimOrder.findUnique({
@@ -180,6 +224,16 @@ export class PaymentService {
         return;
       }
 
+      let esimProfileId: string | undefined;
+      if (targetIccid) {
+        const profile = await this.prisma.esimProfile.findUnique({
+          where: { iccid: targetIccid },
+        });
+        if (profile) {
+          esimProfileId = profile.id;
+        }
+      }
+
       const order = await this.prisma.esimOrder.create({
         data: {
           userId,
@@ -188,6 +242,7 @@ export class PaymentService {
           status: OrderStatus.PENDING,
           amountPaid,
           stripeSessionId: session.id,
+          esimProfileId: esimProfileId || null,
         },
       });
 
@@ -199,6 +254,7 @@ export class PaymentService {
           order.id,
           planId,
           session.customer_details?.email || session.customer_email || '',
+          targetIccid,
         );
       } catch (err) {
         this.logger.error(
@@ -225,10 +281,11 @@ export class PaymentService {
       const planId = metadata.planId;
       const countryCode = metadata.countryCode;
       const amountPaid = parseFloat(metadata.amount || '0');
+      const targetIccid = metadata.targetIccid;
 
       // Create Order in PENDING status (idempontency check using stripeSessionId)
       const existingOrder = await this.prisma.esimOrder.findUnique({
-        where: { stripeSessionId: intent.id }, // Storing intent.id in stripeSessionId field
+        where: { stripeSessionId: intent.id },
       });
 
       if (existingOrder) {
@@ -238,6 +295,16 @@ export class PaymentService {
         return;
       }
 
+      let esimProfileId: string | undefined;
+      if (targetIccid) {
+        const profile = await this.prisma.esimProfile.findUnique({
+          where: { iccid: targetIccid },
+        });
+        if (profile) {
+          esimProfileId = profile.id;
+        }
+      }
+
       const order = await this.prisma.esimOrder.create({
         data: {
           userId,
@@ -245,7 +312,8 @@ export class PaymentService {
           countryCode,
           status: OrderStatus.PENDING,
           amountPaid,
-          stripeSessionId: intent.id, // Using the same field for PaymentIntent ID
+          stripeSessionId: intent.id,
+          esimProfileId: esimProfileId || null,
         },
       });
 
@@ -257,6 +325,7 @@ export class PaymentService {
           order.id,
           planId,
           intent.receipt_email || '',
+          targetIccid,
         );
       } catch (err) {
         this.logger.error(
@@ -271,6 +340,9 @@ export class PaymentService {
       where: {
         OR: [{ stripeSessionId: sessionId }, { id: sessionId }],
       },
+      include: {
+        esimProfile: true,
+      },
     });
     if (!order) {
       throw new BadRequestException('Order not found.');
@@ -279,14 +351,177 @@ export class PaymentService {
   }
 
   async getOrdersByUserId(userId: string): Promise<any[]> {
-    return this.prisma.esimOrder.findMany({
-      where: {
-        userId,
-        status: OrderStatus.PROVISIONED,
+    const profiles = await this.prisma.esimProfile.findMany({
+      where: { userId },
+      include: {
+        orders: {
+          where: { status: OrderStatus.PROVISIONED },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
-      orderBy: {
-        createdAt: 'desc',
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const mapped: any[] = [];
+    for (const p of profiles) {
+      const latestOrder = p.orders[0];
+      let planName = 'eSIM Plan';
+      let dataGb = 5.0; // Default fallback
+
+      if (latestOrder) {
+        try {
+          const plans = await this.provider.getPlans(latestOrder.countryCode);
+          const matchedPlan = plans.find(plan => plan.id === latestOrder.planId);
+          if (matchedPlan) {
+            planName = matchedPlan.name;
+            dataGb = matchedPlan.dataGb;
+          }
+        } catch (err) {
+          this.logger.warn(`Could not resolve plan name from provider: ${err.message}`);
+        }
+      }
+
+      mapped.push({
+        id: p.id,
+        iccid: p.iccid,
+        qrCodeUrl: p.qrCodeUrl,
+        smDpAddress: p.smDpAddress,
+        activationCode: p.activationCode,
+        status: p.status,
+        statusString: p.statusString,
+        planId: latestOrder?.planId || 'unknown_plan',
+        planName,
+        dataGb,
+        countryCode: latestOrder?.countryCode || 'US',
+        dataRemainingBytes: Number(p.dataRemainingBytes),
+        dataTotalBytes: Number(p.dataTotalBytes),
+        dataUsedBytes: Number(p.dataUsedBytes),
+        expiresAt: p.expiresAt,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      });
+    }
+
+    return mapped;
+  }
+
+  async getEsimDetails(userId: string, iccid: string): Promise<any> {
+    // 1. Verify eSIM belongs to the user
+    const profile = await this.prisma.esimProfile.findUnique({
+      where: { iccid },
+      include: {
+        orders: {
+          where: { status: OrderStatus.PROVISIONED },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
     });
+
+    if (!profile || profile.userId !== userId) {
+      throw new BadRequestException('eSIM profile not found or access denied.');
+    }
+
+    const latestOrder = profile.orders[0];
+    let planName = 'eSIM Plan';
+    let dataGb = 5.0;
+
+    if (latestOrder) {
+      try {
+        const plans = await this.provider.getPlans(latestOrder.countryCode);
+        const matchedPlan = plans.find(plan => plan.id === latestOrder.planId);
+        if (matchedPlan) {
+          planName = matchedPlan.name;
+          dataGb = matchedPlan.dataGb;
+        }
+      } catch (err) {
+        this.logger.warn(`Could not resolve plan name from provider: ${err.message}`);
+      }
+    }
+
+    // 2. Fetch live details from carrier via Yesim API
+    try {
+      const carrierDetails = await this.provider.getEsimDetails(iccid);
+      
+      // Update local database with live details
+      await this.prisma.esimProfile.update({
+        where: { iccid },
+        data: {
+          status: carrierDetails.status,
+          statusString: carrierDetails.statusString || 'Released',
+          dataTotalBytes: carrierDetails.dataTotalBytes ? Math.round(carrierDetails.dataTotalBytes) : 0,
+          dataUsedBytes: carrierDetails.dataUsedBytes ? Math.round(carrierDetails.dataUsedBytes) : 0,
+          dataRemainingBytes: carrierDetails.dataRemainingBytes ? Math.round(carrierDetails.dataRemainingBytes) : 0,
+          expiresAt: carrierDetails.expiresAt,
+        },
+      });
+
+      return {
+        id: profile.id,
+        iccid: profile.iccid,
+        qrCodeUrl: profile.qrCodeUrl,
+        smDpAddress: profile.smDpAddress,
+        activationCode: profile.activationCode,
+        status: carrierDetails.status,
+        statusString: carrierDetails.statusString || 'Released',
+        dataTotalBytes: carrierDetails.dataTotalBytes,
+        dataUsedBytes: carrierDetails.dataUsedBytes,
+        dataRemainingBytes: carrierDetails.dataRemainingBytes,
+        expiresAt: carrierDetails.expiresAt,
+        planId: latestOrder?.planId || 'unknown_plan',
+        planName,
+        dataGb,
+        countryCode: latestOrder?.countryCode || 'US',
+      };
+    } catch (err) {
+      this.logger.error(`Failed to fetch carrier details for ICCID ${iccid}: ${(err as Error).message}`);
+      // Fallback to database profile info on carrier lookup failure
+      return {
+        id: profile.id,
+        iccid: profile.iccid,
+        qrCodeUrl: profile.qrCodeUrl,
+        smDpAddress: profile.smDpAddress,
+        activationCode: profile.activationCode,
+        status: profile.status,
+        statusString: profile.statusString,
+        dataTotalBytes: Number(profile.dataTotalBytes),
+        dataUsedBytes: Number(profile.dataUsedBytes),
+        dataRemainingBytes: Number(profile.dataRemainingBytes),
+        expiresAt: profile.expiresAt,
+        planId: latestOrder?.planId || 'unknown_plan',
+        planName,
+        dataGb,
+        countryCode: latestOrder?.countryCode || 'US',
+      };
+    }
+  }
+
+  async handleYesimWebhook(payload: any): Promise<void> {
+    const iccid = payload.iccid;
+    if (!iccid) {
+      this.logger.warn('Yesim webhook received without iccid');
+      return;
+    }
+
+    this.logger.log(`Received Yesim webhook for ICCID: ${iccid}, Type: ${payload.type}`);
+
+    try {
+      const details = await this.provider.getEsimDetails(iccid);
+      await this.prisma.esimProfile.update({
+        where: { iccid },
+        data: {
+          status: details.status,
+          statusString: details.statusString || 'Released',
+          dataTotalBytes: details.dataTotalBytes ? Math.round(details.dataTotalBytes) : 0,
+          dataUsedBytes: details.dataUsedBytes ? Math.round(details.dataUsedBytes) : 0,
+          dataRemainingBytes: details.dataRemainingBytes ? Math.round(details.dataRemainingBytes) : 0,
+          expiresAt: details.expiresAt,
+        },
+      });
+      this.logger.log(`Successfully updated eSIM profile for ICCID ${iccid} via webhook details`);
+    } catch (err) {
+      this.logger.error(`Failed to update eSIM profile for ICCID ${iccid} via webhook: ${(err as Error).message}`);
+    }
   }
 }

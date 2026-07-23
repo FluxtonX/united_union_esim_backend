@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  Param,
 } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { CheckoutDto } from './dto/checkout.dto';
@@ -28,6 +29,23 @@ import {
 @Controller('payment')
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
+
+  @Get('yesim-balance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Check current Yesim partner account balance',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Yesim partner balance retrieved successfully.',
+  })
+  async getYesimBalance(): Promise<{ success: boolean; data: any }> {
+    const balanceInfo = await this.paymentService.getYesimBalance();
+    return {
+      success: true,
+      data: balanceInfo,
+    };
+  }
 
   @Get('order-status')
   @HttpCode(HttpStatus.OK)
@@ -74,6 +92,8 @@ export class PaymentController {
       dto.planId,
       dto.countryCode,
       dto.amount,
+      dto.iccid,
+      dto.currency,
     );
     return {
       success: true,
@@ -99,6 +119,8 @@ export class PaymentController {
       dto.planId,
       dto.countryCode,
       dto.amount,
+      dto.iccid,
+      dto.currency,
     );
     return {
       success: true,
@@ -128,6 +150,8 @@ export class PaymentController {
       dto.planId,
       dto.countryCode,
       dto.amount,
+      dto.iccid,
+      dto.currency,
     );
     return {
       success: true,
@@ -183,5 +207,43 @@ export class PaymentController {
       success: true,
       data: esims,
     };
+  }
+
+  @Get('esim/:iccid/details')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get live carrier details for a specific eSIM by ICCID',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Carrier details retrieved successfully.',
+  })
+  async getEsimDetails(
+    @GetUser('id') userId: string,
+    @Param('iccid') iccid: string,
+  ): Promise<{ success: boolean; data: any }> {
+    const details = await this.paymentService.getEsimDetails(userId, iccid);
+    return {
+      success: true,
+      data: details,
+    };
+  }
+
+  @Post('yesim-webhook')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Yesim Webhook Listener for eSIM Status and Data updates',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Yesim webhook processed successfully.',
+  })
+  async handleYesimWebhook(
+    @Body() payload: any,
+  ): Promise<{ success: boolean }> {
+    await this.paymentService.handleYesimWebhook(payload);
+    return { success: true };
   }
 }

@@ -28,11 +28,13 @@ model User {
   lockUntil                  DateTime?
   lastLogin                  DateTime?
   role                       Role              @default(USER)
+  yesimUserId                String?
   createdAt                  DateTime          @default(now())
   updatedAt                  DateTime          @updatedAt
   sessions                   UserSession[]
   passwordHistories          PasswordHistory[]
   orders                     EsimOrder[]
+  esimProfiles               EsimProfile[]
 }
 
 model UserSession {
@@ -62,19 +64,47 @@ enum OrderStatus {
   FAILED
 }
 
+model EsimProfile {
+  id             String      @id @default(uuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  iccid          String      @unique
+  qrCodeUrl      String
+  smDpAddress    String
+  activationCode String
+  status         String      @default("active") // active, expired, deleted
+  statusString   String      @default("Released") // stores raw status_qr state: Released, Installed, Deleted, Enabled, Disabled
+  dataTotalBytes BigInt      @default(0)
+  dataUsedBytes  BigInt      @default(0)
+  dataRemainingBytes BigInt  @default(0)
+  expiresAt      DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  orders         EsimOrder[]
+}
+
 model EsimOrder {
-  id               String      @id @default(uuid())
+  id               String       @id @default(uuid())
   userId           String
-  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  esimProfileId    String?
+  esimProfile      EsimProfile? @relation(fields: [esimProfileId], references: [id], onDelete: SetNull)
   planId           String
   countryCode      String
-  iccid            String?     @unique
-  qrCodeUrl        String?
-  smDpAddress      String?
-  activationCode   String?
-  status           OrderStatus @default(PENDING)
+  status           OrderStatus  @default(PENDING)
   amountPaid       Float
-  stripeSessionId  String?     @unique
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  stripeSessionId  String?      @unique
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model SupportedDevice {
+  id        String   @id @default(uuid())
+  type      String   // PHONE, TABLET, etc.
+  brand     String
+  model     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([brand, model])
 }

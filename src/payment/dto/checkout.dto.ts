@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsNumber, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, Min, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CheckoutDto {
@@ -16,4 +16,14 @@ export class CheckoutDto {
   @IsNumber()
   @Min(0.5, { message: 'Minimum checkout price is $0.50' })
   amount!: number;
+
+  @ApiProperty({ example: 'USD', required: false })
+  @IsString()
+  @IsOptional()
+  currency?: string;
+
+  @ApiProperty({ example: '8937204017...', required: false })
+  @IsString()
+  @IsOptional()
+  iccid?: string;
 }

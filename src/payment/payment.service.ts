@@ -84,6 +84,7 @@ export class PaymentService {
 
     try {
       const selectedCurrency = currency?.toLowerCase() === 'eur' ? 'eur' : 'usd';
+      const chargeAmount = Math.max(amount, 0.50);
       const session = await this.stripe.checkout.sessions.create({
         payment_method_types: ['card'],
         line_items: [
@@ -94,7 +95,7 @@ export class PaymentService {
                 name: `eSIM Data Plan - ${planId.toUpperCase()}`,
                 description: `Travel eSIM for country: ${countryCode.toUpperCase()}`,
               },
-              unit_amount: Math.round(amount * 100), // convert to cents
+              unit_amount: Math.round(chargeAmount * 100), // convert to cents (Stripe min: 50 cents)
             },
             quantity: 1,
           },
@@ -105,7 +106,7 @@ export class PaymentService {
           userId: finalUserId,
           planId,
           countryCode,
-          amount: amount.toString(),
+          amount: chargeAmount.toString(),
           currency: selectedCurrency.toUpperCase(),
           ...(iccid ? { targetIccid: iccid } : {}),
         },
@@ -145,15 +146,16 @@ export class PaymentService {
       // For real-world apps, you'd find or create the Stripe Customer here.
       // For this demo, we'll just create the intent directly.
       const selectedCurrency = currency?.toLowerCase() === 'eur' ? 'eur' : 'usd';
+      const chargeAmount = Math.max(amount, 0.50);
       const intent = await this.stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // convert to cents
+        amount: Math.round(chargeAmount * 100), // convert to cents (Stripe min: 50 cents)
         currency: selectedCurrency,
         receipt_email: email,
         metadata: {
           userId,
           planId,
           countryCode,
-          amount: amount.toString(),
+          amount: chargeAmount.toString(),
           currency: selectedCurrency.toUpperCase(),
           ...(iccid ? { targetIccid: iccid } : {}),
         },

@@ -127,8 +127,8 @@ export class PaymentService {
   }
 
   async createPaymentIntent(
-    userId: string,
-    email: string,
+    userId: string | undefined,
+    email: string | undefined,
     planId: string,
     countryCode: string,
     amount: number,
@@ -150,9 +150,9 @@ export class PaymentService {
       const intent = await this.stripe.paymentIntents.create({
         amount: Math.round(chargeAmount * 100), // convert to cents (Stripe min: 50 cents)
         currency: selectedCurrency,
-        receipt_email: email,
+        ...(email ? { receipt_email: email } : {}),
         metadata: {
-          userId,
+          userId: userId || 'guest',
           planId,
           countryCode,
           amount: chargeAmount.toString(),

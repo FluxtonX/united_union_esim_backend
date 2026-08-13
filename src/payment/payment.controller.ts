@@ -16,6 +16,7 @@ import {
 import { PaymentService } from './payment.service';
 import { CheckoutDto } from './dto/checkout.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import {
   ApiTags,
@@ -129,7 +130,7 @@ export class PaymentController {
   }
 
   @Post('intent')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({
@@ -140,8 +141,8 @@ export class PaymentController {
     description: 'PaymentIntent created successfully.',
   })
   async createIntent(
-    @GetUser('id') userId: string,
-    @GetUser('email') email: string,
+    @GetUser('id') userId: string | undefined,
+    @GetUser('email') email: string | undefined,
     @Body() dto: CheckoutDto,
   ): Promise<{ success: boolean; data: any }> {
     const intentData = await this.paymentService.createPaymentIntent(

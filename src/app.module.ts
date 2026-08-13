@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { ProviderModule } from './providers/provider.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { PaymentModule } from './payment/payment.module';
+import { SupportModule } from './support/support.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 
 @Module({
@@ -17,6 +18,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
     ProviderModule,
     CatalogModule,
     PaymentModule,
+    SupportModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60000,
@@ -28,3 +30,4 @@ import { ThrottlerModule } from '@nestjs/throttler';
   providers: [AppService],
 })
 export class AppModule {}
+

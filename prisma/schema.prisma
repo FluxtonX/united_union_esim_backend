@@ -35,6 +35,7 @@ model User {
   passwordHistories          PasswordHistory[]
   orders                     EsimOrder[]
   esimProfiles               EsimProfile[]
+  tickets                    SupportTicket[]
 }
 
 model UserSession {
@@ -107,4 +108,44 @@ model SupportedDevice {
   updatedAt DateTime @updatedAt
 
   @@unique([brand, model])
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model SupportTicket {
+  id        String         @id @default(uuid())
+  userId    String?
+  user      User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String
+  subject   String
+  message   String
+  category  String         @default("general")
+  status    TicketStatus   @default(OPEN)
+  priority  TicketPriority @default(MEDIUM)
+  ticketRef String         @unique
+  replies   TicketReply[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+model TicketReply {
+  id         String        @id @default(uuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  message    String
+  isStaff    Boolean       @default(false)
+  senderName String
+  createdAt  DateTime      @default(now())
 }

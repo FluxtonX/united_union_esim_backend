@@ -44,9 +44,9 @@ export class AuthService {
     // Hash password
     const passwordHash = await PasswordUtility.hash(dto.password);
 
-    // Generate email verification token
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = this.hashToken(rawToken);
+    // Generate 6-digit numeric OTP code
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const tokenHash = this.hashToken(otpCode);
 
     // Create user
     const user = await this.repository.createUser({
@@ -60,10 +60,10 @@ export class AuthService {
     // Record initial password history
     await this.repository.addPasswordHistory(user.id, passwordHash);
 
-    // Send email verification
-    await this.mailService.sendEmailVerification(email, rawToken);
-    this.logger.log(`Success registration for user id: ${user.id}`);
-    return { verificationToken: rawToken };
+    // Send 6-digit OTP via Resend email
+    await this.mailService.sendEmailVerification(email, otpCode);
+    this.logger.log(`Success registration for user id: ${user.id}, 6-digit OTP sent.`);
+    return { verificationToken: otpCode };
   }
 
   /**
@@ -292,7 +292,7 @@ export class AuthService {
   }
 
   /**
-   * Verifies account email.
+   * Verifies account email via 6-digit OTP code or token.
    */
   async verifyEmail(token: string): Promise<void> {
     const tokenHash = this.hashToken(token);
@@ -300,7 +300,7 @@ export class AuthService {
 
     if (!user) {
       throw new BadRequestException(
-        'Verification token is invalid or has expired',
+        'Invalid verification code. Please try again.',
       );
     }
 
@@ -310,6 +310,83 @@ export class AuthService {
     });
 
     this.logger.log(`Email verified successfully for user: ${user.id}`);
+  }
+
+  /**
+   * Verifies 6-digit OTP code sent to registered email address.
+   */
+  async verifyOtp(
+    email: string,
+    otp: string,
+  ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+    const cleanEmail = email.toLowerCase().trim();
+    const tokenHash = this.hashToken(otp.trim());
+
+    const user = await this.repository.findUserByEmail(cleanEmail);
+    if (!user || user.emailVerificationTokenHash !== tokenHash) {
+      throw new BadRequestException(
+        'Invalid verification code. Please try again.',
+      );
+    }
+
+    // Update user as verified
+    await this.repository.updateUser(user.id, {
+      emailVerified: true,
+      emailVerificationTokenHash: null,
+    });
+
+    this.logger.log(`Email verified successfully via 6-digit OTP for user: ${user.id}`);
+
+    // Generate active session & tokens
+    const rawRefreshToken = crypto.randomBytes(40).toString('hex');
+    const refreshHash = await PasswordUtility.hash(rawRefreshToken);
+
+    const session = await this.repository.createSession({
+      userId: user.id,
+      refreshTokenHash: refreshHash,
+      deviceName: 'Mobile App',
+      browser: 'Mobile App',
+      operatingSystem: 'iOS/Android',
+      ipAddress: '127.0.0.1',
+    });
+
+    const accessToken = this.generateAccessToken(user, session.id);
+    const refreshToken = this.generateRefreshToken(session.id, rawRefreshToken);
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        avatarUrl: user.avatarUrl,
+      },
+    };
+  }
+
+  /**
+   * Resends a fresh 6-digit OTP to registered email.
+   */
+  async resendOtp(email: string): Promise<{ success: boolean; message: string }> {
+    const cleanEmail = email.toLowerCase().trim();
+    const user = await this.repository.findUserByEmail(cleanEmail);
+    if (!user) {
+      return { success: true, message: 'If registered, a new 6-digit OTP has been sent.' };
+    }
+
+    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const tokenHash = this.hashToken(newOtp);
+
+    await this.repository.updateUser(user.id, {
+      emailVerificationTokenHash: tokenHash,
+    });
+
+    await this.mailService.sendEmailVerification(user.email, newOtp);
+    this.logger.log(`Resent 6-digit OTP to user: ${user.id}`);
+    return { success: true, message: 'New 6-digit OTP sent to your email.' };
   }
 
   /**

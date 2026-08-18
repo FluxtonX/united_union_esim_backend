@@ -30,7 +30,7 @@ export class AuthService {
   /**
    * Registers a new user. Does not allow login until email is verified.
    */
-  async register(dto: RegisterDto): Promise<{ verificationToken: string }> {
+  async register(dto: RegisterDto): Promise<{ message: string }> {
     const email = dto.email.toLowerCase().trim();
 
     // Check duplicate
@@ -38,7 +38,7 @@ export class AuthService {
     if (existing) {
       // Return generic response to avoid email enumeration
       this.logger.log(`Registration attempt for existing email: ${email}`);
-      return { verificationToken: '' };
+      return { message: 'Verification code sent to your email.' };
     }
 
     // Hash password
@@ -63,7 +63,7 @@ export class AuthService {
     // Send 6-digit OTP via Resend email
     await this.mailService.sendEmailVerification(email, otpCode);
     this.logger.log(`Success registration for user id: ${user.id}, 6-digit OTP sent.`);
-    return { verificationToken: otpCode };
+    return { message: 'Verification code sent to your email.' };
   }
 
   /**

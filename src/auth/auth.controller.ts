@@ -44,14 +44,11 @@ export class AuthController {
   async register(@Body() dto: RegisterDto): Promise<{
     success: boolean;
     message: string;
-    verificationToken?: string;
   }> {
     const result = await this.authService.register(dto);
     return {
       success: true,
-      message:
-        'Registration successful. Please verify your email before logging in.',
-      verificationToken: result.verificationToken,
+      message: result.message || 'Registration successful. Please check your email for your 6-digit verification code.',
     };
   }
 

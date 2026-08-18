@@ -29,6 +29,7 @@ model User {
   lastLogin                  DateTime?
   role                       Role              @default(USER)
   yesimUserId                String?
+  avatarUrl                  String?
   createdAt                  DateTime          @default(now())
   updatedAt                  DateTime          @updatedAt
   sessions                   UserSession[]

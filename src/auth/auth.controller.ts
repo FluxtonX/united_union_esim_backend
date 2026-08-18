@@ -182,6 +182,35 @@ export class AuthController {
     };
   }
 
+  @Post('verify-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify 6-digit OTP sent to email' })
+  async verifyOtp(
+    @Body() dto: { email: string; otp: string },
+    @Res({ passthrough: true }) res: any,
+  ): Promise<{ success: boolean; message: string; accessToken?: string; user?: any }> {
+    const { accessToken, refreshToken, user } = await this.authService.verifyOtp(
+      dto.email,
+      dto.otp,
+    );
+    this.setTokenCookies(res, accessToken, refreshToken);
+    return {
+      success: true,
+      message: 'Email verified successfully.',
+      accessToken,
+      user,
+    };
+  }
+
+  @Post('resend-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resend fresh 6-digit OTP to email' })
+  async resendOtp(
+    @Body() dto: { email: string },
+  ): Promise<{ success: boolean; message: string }> {
+    return await this.authService.resendOtp(dto.email);
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

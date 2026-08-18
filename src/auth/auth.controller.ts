@@ -20,6 +20,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GetUser } from './decorators/get-user.decorator';
 import {
@@ -219,6 +220,22 @@ export class AuthController {
     return {
       success: true,
       data: profile,
+    };
+  }
+
+  @Patch('update-profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update user profile details' })
+  async updateProfile(
+    @GetUser('id') userId: string,
+    @Body() dto: UpdateProfileDto,
+  ): Promise<{ success: boolean; data: any; message: string }> {
+    const updated = await this.authService.updateProfile(userId, dto);
+    return {
+      success: true,
+      data: updated,
+      message: 'Profile updated successfully.',
     };
   }
 

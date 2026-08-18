@@ -17,13 +17,6 @@ export class MailService {
     subject: string,
     htmlContent: string,
   ): Promise<void> {
-    if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'mock_key') {
-      this.logger.log(
-        `[MailService Mock Mode] Subject: "${subject}" -> To: ${toEmail}`,
-      );
-      return;
-    }
-
     try {
       const { data, error } = await this.resend.emails.send({
         from: this.fromAddress,

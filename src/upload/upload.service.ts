@@ -46,7 +46,6 @@ export class UploadService {
           Key: key,
           Body: file.buffer,
           ContentType: file.mimetype || 'image/jpeg',
-          ACL: 'public-read',
         });
 
         await this.s3Client.send(command);

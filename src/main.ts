@@ -33,7 +33,7 @@ async function bootstrap() {
         origin === 'http://localhost:3002' ||
         origin === 'http://127.0.0.1:3000' ||
         origin === 'http://127.0.0.1:3001' ||
-        origin === 'http://127.0.0.1:3002' ||
+        origin.endsWith('.vercel.app') ||
         /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):(3000|3001|3002)$/.test(origin) ||
         (process.env.CORS_ORIGIN && process.env.CORS_ORIGIN.split(',').includes(origin));
 

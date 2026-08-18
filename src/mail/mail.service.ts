@@ -1,20 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Resend } from 'resend';
 
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
+  private readonly resend: Resend;
+  private readonly fromAddress: string;
 
-  private async sendBrevoEmail(
+  constructor() {
+    this.resend = new Resend(process.env.RESEND_API_KEY);
+    this.fromAddress = 'United Union eSIM <onboarding@resend.dev>';
+  }
+
+  private async sendEmail(
     toEmail: string,
     subject: string,
     htmlContent: string,
   ): Promise<void> {
-    const apiKey = process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY;
-    const senderEmail =
-      process.env.BREVO_SENDER_EMAIL || 'no-reply@unitedunion.com';
-    const senderName = process.env.BREVO_SENDER_NAME || 'United Union eSIM';
-
-    if (!apiKey || apiKey === 'mock_key') {
+    if (!process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'mock_key') {
       this.logger.log(
         `[MailService Mock Mode] Subject: "${subject}" -> To: ${toEmail}`,
       );
@@ -22,31 +25,26 @@ export class MailService {
     }
 
     try {
-      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          accept: 'application/json',
-          'api-key': apiKey,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          sender: { name: senderName, email: senderEmail },
-          to: [{ email: toEmail }],
-          subject,
-          htmlContent,
-        }),
+      const { data, error } = await this.resend.emails.send({
+        from: this.fromAddress,
+        to: [toEmail],
+        subject,
+        html: htmlContent,
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        this.logger.error(`[Brevo API Error ${response.status}] ${errorText}`);
+      if (error) {
+        this.logger.error(
+          `[Resend API Error] ${error.name}: ${error.message}`,
+        );
       } else {
         this.logger.log(
-          `[Brevo Email Sent] Successfully sent "${subject}" to ${toEmail}`,
+          `[Resend Email Sent] id=${data?.id} "${subject}" to ${toEmail}`,
         );
       }
     } catch (err) {
-      this.logger.error(`[Brevo Send Exception] ${(err as Error).message}`);
+      this.logger.error(
+        `[Resend Send Exception] ${(err as Error).message}`,
+      );
     }
   }
 
@@ -72,7 +70,7 @@ export class MailService {
       </div>
     `;
 
-    await this.sendBrevoEmail(
+    await this.sendEmail(
       email,
       `${otpCode} is your United Union eSIM verification code`,
       htmlContent,
@@ -94,7 +92,7 @@ export class MailService {
       </div>
     `;
 
-    await this.sendBrevoEmail(
+    await this.sendEmail(
       email,
       `Reset Your United Union Password`,
       htmlContent,
@@ -109,7 +107,7 @@ export class MailService {
     activationCode: string,
   ): Promise<void> {
     this.logger.log(
-      `[MailService] Sending eSIM activation details email via Brevo to ${email}`,
+      `[MailService] Sending eSIM activation details email to ${email}`,
     );
 
     const lpaString = `LPA:1$${smDpAddress}$${activationCode}`;
@@ -160,7 +158,7 @@ export class MailService {
       </div>
     `;
 
-    await this.sendBrevoEmail(
+    await this.sendEmail(
       email,
       `Your United Union eSIM Profile Credentials`,
       htmlContent,

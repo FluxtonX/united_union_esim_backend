@@ -60,7 +60,7 @@ export class AuthService {
     // Record initial password history
     await this.repository.addPasswordHistory(user.id, passwordHash);
 
-    // Send 6-digit OTP via Brevo email
+    // Send 6-digit OTP via Resend email
     await this.mailService.sendEmailVerification(email, otpCode);
     this.logger.log(`Success registration for user id: ${user.id}, 6-digit OTP sent.`);
     return { verificationToken: otpCode };

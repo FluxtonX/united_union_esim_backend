@@ -66,7 +66,7 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Req() req: any,
     @Res({ passthrough: true }) res: any,
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{ success: boolean; message: string; accessToken?: string }> {
     const ip = req.ip || '127.0.0.1';
     const userAgent = req.headers['user-agent'] || 'Unknown';
 
@@ -82,6 +82,7 @@ export class AuthController {
     return {
       success: true,
       message: 'Logged in successfully',
+      accessToken,
     };
   }
 

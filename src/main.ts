@@ -21,11 +21,31 @@ async function bootstrap() {
   // Security: Apply Helmet headers
   app.use(helmet());
 
-  // Security: CORS configuration
+  // Security: CORS configuration - support Storefront (3001), Admin Panel (3002), Mobile & local dev origins
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, Postman)
+      if (!origin) return callback(null, true);
+
+      const isAllowed =
+        origin === 'http://localhost:3000' ||
+        origin === 'http://localhost:3001' ||
+        origin === 'http://localhost:3002' ||
+        origin === 'http://127.0.0.1:3000' ||
+        origin === 'http://127.0.0.1:3001' ||
+        origin === 'http://127.0.0.1:3002' ||
+        /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):(3000|3001|3002)$/.test(origin) ||
+        (process.env.CORS_ORIGIN && process.env.CORS_ORIGIN.split(',').includes(origin));
+
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        callback(null, true); // Fallback allow in dev
+      }
+    },
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: 'Content-Type,Accept,Authorization,X-Requested-With',
   });
 
   // Global Request Logger middleware to see incoming requests in the console

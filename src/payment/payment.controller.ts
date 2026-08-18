@@ -247,4 +247,24 @@ export class PaymentController {
     await this.paymentService.handleYesimWebhook(payload);
     return { success: true };
   }
+
+  @Post('send-esim-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send eSIM profile activation details to email' })
+  @ApiResponse({
+    status: 200,
+    description: 'eSIM details email sent successfully.',
+  })
+  async sendEsimEmail(
+    @Body() dto: { orderId: string; email: string },
+  ): Promise<{ success: boolean; message: string }> {
+    if (!dto.orderId || !dto.email) {
+      throw new BadRequestException('orderId and email are required');
+    }
+    await this.paymentService.sendEsimEmail(dto.orderId, dto.email);
+    return {
+      success: true,
+      message: 'eSIM activation details sent to your email.',
+    };
+  }
 }

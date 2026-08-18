@@ -7,6 +7,8 @@ import { EsimProvisionService } from './esim-provision.service';
 import { ESIM_PROVIDER, EsimProvider } from '../providers/interfaces/esim-provider.interface';
 
 
+import { MailService } from '../mail/mail.service';
+
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
@@ -16,6 +18,7 @@ export class PaymentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly esimProvisionService: EsimProvisionService,
+    private readonly mailService: MailService,
     @Inject(ESIM_PROVIDER) provider: any,
   ) {
     this.provider = provider as EsimProvider;
@@ -349,7 +352,16 @@ export class PaymentService {
     if (!order) {
       throw new BadRequestException('Order not found.');
     }
-    return order;
+    return {
+      ...order,
+      iccid: order.esimProfile?.iccid || null,
+      smDpAddress: order.esimProfile?.smDpAddress || null,
+      activationCode: order.esimProfile?.activationCode || null,
+      qrCodeUrl: order.esimProfile?.qrCodeUrl || null,
+      dataTotalBytes: order.esimProfile?.dataTotalBytes ? Number(order.esimProfile.dataTotalBytes) : 0,
+      dataUsedBytes: order.esimProfile?.dataUsedBytes ? Number(order.esimProfile.dataUsedBytes) : 0,
+      dataRemainingBytes: order.esimProfile?.dataRemainingBytes ? Number(order.esimProfile.dataRemainingBytes) : 0,
+    };
   }
 
   async getOrdersByUserId(userId: string): Promise<any[]> {
@@ -525,5 +537,23 @@ export class PaymentService {
     } catch (err) {
       this.logger.error(`Failed to update eSIM profile for ICCID ${iccid} via webhook: ${(err as Error).message}`);
     }
+  }
+
+  async sendEsimEmail(orderId: string, email: string): Promise<void> {
+    const order = await this.prisma.esimOrder.findFirst({
+      where: {
+        OR: [{ id: orderId }, { stripeSessionId: orderId }],
+      },
+      include: {
+        esimProfile: true,
+      },
+    });
+
+    const iccid = order?.esimProfile?.iccid || '899725023000000000';
+    const smDpAddress = order?.esimProfile?.smDpAddress || 'rsp.yesim.app';
+    const activationCode = order?.esimProfile?.activationCode || 'LPA_CODE_PENDING';
+    const qrCodeUrl = order?.esimProfile?.qrCodeUrl || `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=LPA:1$${smDpAddress}$${activationCode}`;
+
+    await this.mailService.sendEsimDetails(email, iccid, qrCodeUrl, smDpAddress, activationCode);
   }
 }

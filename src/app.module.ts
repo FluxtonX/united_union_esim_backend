@@ -8,6 +8,7 @@ import { ProviderModule } from './providers/provider.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { PaymentModule } from './payment/payment.module';
 import { SupportModule } from './support/support.module';
+import { AdminModule } from './admin/admin.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 
 @Module({
@@ -19,6 +20,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
     CatalogModule,
     PaymentModule,
     SupportModule,
+    AdminModule,
     ThrottlerModule.forRoot([
       {
         ttl: 60000,

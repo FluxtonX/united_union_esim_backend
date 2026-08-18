@@ -533,8 +533,35 @@ export class AuthService {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
+      avatarUrl: user.avatarUrl,
       role: user.role,
       createdAt: user.createdAt,
+    };
+  }
+
+  async updateProfile(
+    userId: string,
+    dto: { firstName?: string; lastName?: string; avatarUrl?: string },
+  ): Promise<any> {
+    const user = await this.repository.findUserById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const dataToUpdate: any = {};
+    if (dto.firstName !== undefined) dataToUpdate.firstName = dto.firstName;
+    if (dto.lastName !== undefined) dataToUpdate.lastName = dto.lastName;
+    if (dto.avatarUrl !== undefined) dataToUpdate.avatarUrl = dto.avatarUrl;
+
+    const updated = await this.repository.updateUser(userId, dataToUpdate);
+
+    return {
+      id: updated.id,
+      email: updated.email,
+      firstName: updated.firstName,
+      lastName: updated.lastName,
+      avatarUrl: updated.avatarUrl,
+      role: updated.role,
     };
   }
 }

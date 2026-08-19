@@ -71,6 +71,19 @@ export class PaymentController {
     };
   }
 
+  private extractOrigin(origin?: string, referer?: string): string | undefined {
+    if (origin && origin !== 'null') {
+      return origin.replace(/\/+$/, '');
+    }
+    if (referer) {
+      try {
+        const parsed = new URL(referer);
+        return `${parsed.protocol}//${parsed.host}`;
+      } catch (_) {}
+    }
+    return undefined;
+  }
+
   @Post('checkout')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -86,7 +99,10 @@ export class PaymentController {
     @GetUser('id') userId: string,
     @GetUser('email') email: string,
     @Body() dto: CheckoutDto,
+    @Headers('origin') origin?: string,
+    @Headers('referer') referer?: string,
   ): Promise<{ success: boolean; data: any }> {
+    const requestOrigin = this.extractOrigin(origin, referer);
     const session = await this.paymentService.createCheckoutSession(
       userId,
       email,
@@ -97,6 +113,7 @@ export class PaymentController {
       dto.currency,
       dto.successUrl,
       dto.cancelUrl,
+      requestOrigin,
     );
     return {
       success: true,
@@ -115,7 +132,10 @@ export class PaymentController {
   })
   async createGuestCheckout(
     @Body() dto: CheckoutDto,
+    @Headers('origin') origin?: string,
+    @Headers('referer') referer?: string,
   ): Promise<{ success: boolean; data: any }> {
+    const requestOrigin = this.extractOrigin(origin, referer);
     const session = await this.paymentService.createCheckoutSession(
       undefined,
       undefined,
@@ -126,6 +146,7 @@ export class PaymentController {
       dto.currency,
       dto.successUrl,
       dto.cancelUrl,
+      requestOrigin,
     );
     return {
       success: true,

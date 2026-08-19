@@ -57,12 +57,13 @@ export class PaymentService {
     amount: number,
     iccid?: string,
     currency?: string,
+    customSuccessUrl?: string,
+    customCancelUrl?: string,
   ): Promise<{ sessionId: string; url: string | null }> {
     // Confirm Yesim partner balance / status before checkout
     await this.checkYesimBalanceBeforeCheckout();
 
     let finalUserId = userId;
-    let finalEmail = email;
 
     if (!finalUserId) {
       // Find or create default guest user
@@ -82,12 +83,12 @@ export class PaymentService {
         });
       }
       finalUserId = guestUser.id;
-      finalEmail = guestUser.email;
     }
 
     try {
       const selectedCurrency = currency?.toLowerCase() === 'eur' ? 'eur' : 'usd';
       const chargeAmount = Math.max(amount, 0.50);
+      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
       const session = await this.stripe.checkout.sessions.create({
         payment_method_types: ['card'],
         line_items: [
@@ -104,7 +105,7 @@ export class PaymentService {
           },
         ],
         mode: 'payment',
-        customer_email: finalEmail,
+        ...(email ? { customer_email: email } : {}),
         metadata: {
           userId: finalUserId,
           planId,
@@ -113,8 +114,8 @@ export class PaymentService {
           currency: selectedCurrency.toUpperCase(),
           ...(iccid ? { targetIccid: iccid } : {}),
         },
-        success_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/checkout/cancel`,
+        success_url: customSuccessUrl || `${frontendUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: customCancelUrl || `${frontendUrl}/checkout/cancel`,
       });
 
       return {

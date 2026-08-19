@@ -95,6 +95,8 @@ export class PaymentController {
       dto.amount,
       dto.iccid,
       dto.currency,
+      dto.successUrl,
+      dto.cancelUrl,
     );
     return {
       success: true,
@@ -122,6 +124,8 @@ export class PaymentController {
       dto.amount,
       dto.iccid,
       dto.currency,
+      dto.successUrl,
+      dto.cancelUrl,
     );
     return {
       success: true,

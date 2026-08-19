@@ -59,6 +59,7 @@ export class PaymentService {
     currency?: string,
     customSuccessUrl?: string,
     customCancelUrl?: string,
+    requestOrigin?: string,
   ): Promise<{ sessionId: string; url: string | null }> {
     // Confirm Yesim partner balance / status before checkout
     await this.checkYesimBalanceBeforeCheckout();
@@ -88,7 +89,10 @@ export class PaymentService {
     try {
       const selectedCurrency = currency?.toLowerCase() === 'eur' ? 'eur' : 'usd';
       const chargeAmount = Math.max(amount, 0.50);
-      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
+      const baseUrl = (requestOrigin || process.env.FRONTEND_URL || 'http://localhost:3001').replace(/\/+$/, '');
+      const successUrl = customSuccessUrl || `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = customCancelUrl || `${baseUrl}/checkout/cancel`;
+
       const session = await this.stripe.checkout.sessions.create({
         payment_method_types: ['card'],
         line_items: [
@@ -114,8 +118,8 @@ export class PaymentService {
           currency: selectedCurrency.toUpperCase(),
           ...(iccid ? { targetIccid: iccid } : {}),
         },
-        success_url: customSuccessUrl || `${frontendUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: customCancelUrl || `${frontendUrl}/checkout/cancel`,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
       });
 
       return {

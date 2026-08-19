@@ -26,4 +26,14 @@ export class CheckoutDto {
   @IsString()
   @IsOptional()
   iccid?: string;
+
+  @ApiProperty({ example: 'http://localhost:3001/checkout/success', required: false })
+  @IsString()
+  @IsOptional()
+  successUrl?: string;
+
+  @ApiProperty({ example: 'http://localhost:3001/checkout/cancel', required: false })
+  @IsString()
+  @IsOptional()
+  cancelUrl?: string;
 }

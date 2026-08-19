@@ -8,7 +8,7 @@ export class MailService {
   private readonly fromAddress: string;
 
   constructor() {
-    this.resend = new Resend(process.env.RESEND_API_KEY);
+    this.resend = new Resend(process.env.RESEND_API_KEY || 're_placeholder_key');
     this.fromAddress = 'United Union eSIM <onboarding@resend.dev>';
   }
 
